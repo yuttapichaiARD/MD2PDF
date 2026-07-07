@@ -100,15 +100,20 @@ textarea {
 }
 
 .control-panel {
+  align-self: start;
   background: var(--surface);
   border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
   gap: 16px;
-  max-height: calc(100vh - 72px);
+  height: 100vh;
+  max-height: none;
   min-width: 0;
   overflow: auto;
   padding: 20px;
+  position: sticky;
+  scrollbar-gutter: stable;
+  top: 0;
 }
 
 .drop-zone {
@@ -490,7 +495,10 @@ textarea {
   .control-panel {
     border-right: 0;
     border-bottom: 1px solid var(--line);
+    height: auto;
     max-height: none;
+    overflow: visible;
+    position: static;
   }
 
   textarea {
