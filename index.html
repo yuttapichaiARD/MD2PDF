@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="แปลงไฟล์ Markdown เป็น PDF ด้วยฟอนต์ Noto ผ่านเบราว์เซอร์"
+      content="แปลงไฟล์ Markdown เป็น PDF ด้วยฟอนต์ Noto และตั้งค่าหน้ากระดาษได้ละเอียด"
     />
     <title>MD to PDF - Noto</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -37,37 +37,154 @@
           <span class="drop-meta" id="fileMeta">ลากไฟล์มาวาง หรือคลิกเพื่อเลือกไฟล์</span>
         </label>
 
-        <div class="field-grid">
-          <label class="field">
-            <span>ชื่อ PDF</span>
-            <input id="fileName" type="text" value="document.pdf" />
-          </label>
+        <details class="settings-group" open>
+          <summary>ไฟล์และหน้ากระดาษ</summary>
+          <div class="field-grid">
+            <label class="field full">
+              <span>ชื่อ PDF</span>
+              <input id="fileName" type="text" value="document.pdf" />
+            </label>
 
-          <label class="field">
-            <span>ขนาดกระดาษ</span>
-            <select id="paperSize">
-              <option value="a4" selected>A4</option>
-              <option value="letter">Letter</option>
-            </select>
-          </label>
+            <label class="field">
+              <span>ขนาดกระดาษ</span>
+              <select id="paperSize">
+                <option value="a4" selected>A4</option>
+                <option value="a5">A5</option>
+                <option value="letter">Letter</option>
+                <option value="legal">Legal</option>
+                <option value="custom">กำหนดเอง</option>
+              </select>
+            </label>
 
-          <label class="field">
-            <span>แนวกระดาษ</span>
-            <select id="orientation">
-              <option value="portrait" selected>ตั้ง</option>
-              <option value="landscape">นอน</option>
-            </select>
-          </label>
+            <label class="field">
+              <span>แนวกระดาษ</span>
+              <select id="orientation">
+                <option value="portrait" selected>ตั้ง</option>
+                <option value="landscape">นอน</option>
+              </select>
+            </label>
 
-          <label class="field">
-            <span>ขอบกระดาษ</span>
-            <select id="marginSize">
-              <option value="10">แคบ</option>
-              <option value="14" selected>ปกติ</option>
-              <option value="20">กว้าง</option>
-            </select>
-          </label>
-        </div>
+            <label class="field">
+              <span>กว้าง (mm)</span>
+              <input id="pageWidth" type="number" min="50" max="1000" step="1" value="210" />
+            </label>
+
+            <label class="field">
+              <span>สูง (mm)</span>
+              <input id="pageHeight" type="number" min="50" max="1000" step="1" value="297" />
+            </label>
+
+            <label class="field full">
+              <span>ความละเอียด PDF</span>
+              <select id="renderScale">
+                <option value="1">เบา</option>
+                <option value="2" selected>คมชัด</option>
+                <option value="3">คมมาก</option>
+              </select>
+            </label>
+          </div>
+        </details>
+
+        <details class="settings-group" open>
+          <summary>ขอบกระดาษ</summary>
+          <div class="field-grid">
+            <label class="field full">
+              <span>ชุดขอบ</span>
+              <select id="marginPreset">
+                <option value="narrow">แคบ</option>
+                <option value="normal" selected>ปกติ</option>
+                <option value="wide">กว้าง</option>
+                <option value="custom">กำหนดเอง</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>บน (mm)</span>
+              <input id="marginTop" type="number" min="0" max="80" step="1" value="14" />
+            </label>
+
+            <label class="field">
+              <span>ขวา (mm)</span>
+              <input id="marginRight" type="number" min="0" max="80" step="1" value="14" />
+            </label>
+
+            <label class="field">
+              <span>ล่าง (mm)</span>
+              <input id="marginBottom" type="number" min="0" max="80" step="1" value="14" />
+            </label>
+
+            <label class="field">
+              <span>ซ้าย (mm)</span>
+              <input id="marginLeft" type="number" min="0" max="80" step="1" value="14" />
+            </label>
+          </div>
+        </details>
+
+        <details class="settings-group" open>
+          <summary>ขนาดตัวอักษร</summary>
+          <div class="field-grid font-grid">
+            <label class="field">
+              <span>เนื้อหา</span>
+              <input id="bodyFont" data-style-var="--font-body" type="number" min="8" max="48" step="1" value="16" />
+            </label>
+
+            <label class="field">
+              <span># H1</span>
+              <input id="h1Font" data-style-var="--font-h1" type="number" min="12" max="72" step="1" value="30" />
+            </label>
+
+            <label class="field">
+              <span>## H2</span>
+              <input id="h2Font" data-style-var="--font-h2" type="number" min="10" max="64" step="1" value="24" />
+            </label>
+
+            <label class="field">
+              <span>### H3</span>
+              <input id="h3Font" data-style-var="--font-h3" type="number" min="10" max="56" step="1" value="19" />
+            </label>
+
+            <label class="field">
+              <span>#### H4</span>
+              <input id="h4Font" data-style-var="--font-h4" type="number" min="8" max="48" step="1" value="17" />
+            </label>
+
+            <label class="field">
+              <span>H5/H6</span>
+              <input id="h5Font" data-style-var="--font-h5" type="number" min="8" max="42" step="1" value="15" />
+            </label>
+
+            <label class="field">
+              <span>รายการ</span>
+              <input id="listFont" data-style-var="--font-list" type="number" min="8" max="48" step="1" value="16" />
+            </label>
+
+            <label class="field">
+              <span>Quote</span>
+              <input id="quoteFont" data-style-var="--font-quote" type="number" min="8" max="48" step="1" value="16" />
+            </label>
+
+            <label class="field">
+              <span>Table</span>
+              <input id="tableFont" data-style-var="--font-table" type="number" min="8" max="42" step="1" value="14" />
+            </label>
+
+            <label class="field">
+              <span>`inline`</span>
+              <input id="inlineCodeFont" data-style-var="--font-inline-code" type="number" min="8" max="42" step="1" value="15" />
+            </label>
+
+            <label class="field">
+              <span>``` block</span>
+              <input id="codeBlockFont" data-style-var="--font-code-block" type="number" min="8" max="42" step="1" value="14" />
+            </label>
+
+            <label class="field">
+              <span>บรรทัด</span>
+              <input id="lineHeight" data-style-var="--font-line-height" data-unit="" type="number" min="1" max="2.5" step="0.05" value="1.72" />
+            </label>
+          </div>
+          <button id="resetTypography" class="ghost-button slim-button" type="button">รีเซ็ตตัวอักษร</button>
+        </details>
 
         <div class="actions">
           <button id="downloadPdf" class="primary-button" type="button">ดาวน์โหลด PDF</button>
@@ -81,7 +198,7 @@
       <section class="preview-panel" aria-label="ตัวอย่าง PDF">
         <div class="preview-toolbar">
           <span id="statusText">พร้อมแปลง</span>
-          <span id="pageLabel">A4 ตั้ง</span>
+          <span id="pageLabel">A4 ตั้ง 210 x 297 mm</span>
         </div>
         <div class="preview-stage">
           <article class="preview-page" id="previewPage">
