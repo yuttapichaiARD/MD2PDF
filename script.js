@@ -21,6 +21,11 @@ const sampleMarkdown = `# ตัวอย่างเอกสาร
 const message = "Markdown to PDF";
 console.log(message);
 \`\`\`
+
+\`\`\`python
+def make_pdf(title):
+    return f"{title}.pdf"
+\`\`\`
 `;
 
 const paperSizes = {
@@ -218,6 +223,19 @@ function renderMarkdown() {
   elements.preview.querySelectorAll("a[href]").forEach((anchor) => {
     anchor.setAttribute("target", "_blank");
     anchor.setAttribute("rel", "noreferrer");
+  });
+  applyCodeHighlighting();
+}
+
+function applyCodeHighlighting() {
+  elements.preview.querySelectorAll("pre code").forEach((block) => {
+    if (!window.hljs) {
+      block.classList.add("hljs");
+      return;
+    }
+
+    block.removeAttribute("data-highlighted");
+    window.hljs.highlightElement(block);
   });
 }
 

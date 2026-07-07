@@ -420,7 +420,15 @@ textarea {
 .markdown-body pre code {
   background: transparent;
   color: inherit;
+  display: block;
   font-size: inherit;
+  overflow: visible;
+  padding: 0;
+}
+
+.markdown-body pre code.hljs {
+  background: transparent;
+  color: inherit;
   padding: 0;
 }
 
