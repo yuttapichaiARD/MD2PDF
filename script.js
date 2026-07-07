@@ -355,7 +355,8 @@ function normalizePdfName() {
 }
 
 async function downloadPdf() {
-  if (!window.html2pdf) {
+  const JsPdf = getJsPdfConstructor();
+  if (!window.html2canvas || !JsPdf) {
     printPdf();
     return;
   }
@@ -367,33 +368,31 @@ async function downloadPdf() {
     const page = getPageSettings();
     const clone = elements.previewPage.cloneNode(true);
     clone.removeAttribute("id");
+    clone.style.maxWidth = "none";
+    clone.style.minHeight = `${page.height}mm`;
+    clone.style.width = `${page.width}mm`;
     elements.exportHost.replaceChildren(clone);
 
-    const options = {
-      filename: getPdfName(),
-      image: { type: "jpeg", quality: 0.98 },
-      html2canvas: {
-        backgroundColor: "#ffffff",
-        scale: readNumber(elements.renderScale, 2, 1, 3),
-        useCORS: true,
-        windowWidth: clone.scrollWidth,
-      },
-      jsPDF: {
-        unit: "mm",
-        format: [page.width, page.height],
-        orientation: page.width >= page.height ? "landscape" : "portrait",
-      },
-      pagebreak: {
-        mode: ["css", "legacy"],
-        avoid: ["blockquote", "img", "pre", "table"],
-      },
-    };
-
-    const worker = window.html2pdf().set(options).from(clone).toPdf();
-    await worker.get("pdf").then((pdf) => {
-      pdf.setProperties(getPdfMetadata());
+    const canvas = await window.html2canvas(clone, {
+      backgroundColor: "#ffffff",
+      scale: readNumber(elements.renderScale, 2, 1, 3),
+      scrollX: 0,
+      scrollY: 0,
+      useCORS: true,
+      windowHeight: Math.ceil(clone.scrollHeight),
+      windowWidth: Math.ceil(clone.scrollWidth),
     });
-    await worker.save();
+
+    const orientation = page.width >= page.height ? "landscape" : "portrait";
+    const pdf = new JsPdf({
+      unit: "mm",
+      format: [page.width, page.height],
+      orientation,
+    });
+
+    pdf.setProperties(getPdfMetadata());
+    addCanvasPagesToPdf(pdf, canvas, page, orientation);
+    pdf.save(getPdfName());
     setStatus("ดาวน์โหลดแล้ว");
   } catch (error) {
     console.error(error);
@@ -401,6 +400,53 @@ async function downloadPdf() {
   } finally {
     elements.exportHost.replaceChildren();
     setBusy(false);
+  }
+}
+
+function getJsPdfConstructor() {
+  if (window.jspdf && window.jspdf.jsPDF) {
+    return window.jspdf.jsPDF;
+  }
+
+  return window.jsPDF;
+}
+
+function addCanvasPagesToPdf(pdf, canvas, page, orientation) {
+  const pageWidthPx = canvas.width;
+  const pageHeightPx = Math.floor((page.height / page.width) * pageWidthPx);
+  let renderedHeightPx = 0;
+  let pageIndex = 0;
+
+  while (renderedHeightPx < canvas.height) {
+    const sliceHeightPx = Math.min(pageHeightPx, canvas.height - renderedHeightPx);
+    const pageCanvas = document.createElement("canvas");
+    pageCanvas.width = pageWidthPx;
+    pageCanvas.height = sliceHeightPx;
+
+    const context = pageCanvas.getContext("2d");
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+    context.drawImage(
+      canvas,
+      0,
+      renderedHeightPx,
+      pageWidthPx,
+      sliceHeightPx,
+      0,
+      0,
+      pageWidthPx,
+      sliceHeightPx,
+    );
+
+    if (pageIndex > 0) {
+      pdf.addPage([page.width, page.height], orientation);
+    }
+
+    const imageHeightMm = (sliceHeightPx / pageWidthPx) * page.width;
+    pdf.addImage(pageCanvas.toDataURL("image/jpeg", 0.98), "JPEG", 0, 0, page.width, imageHeightMm);
+
+    renderedHeightPx += sliceHeightPx;
+    pageIndex += 1;
   }
 }
 

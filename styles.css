@@ -474,8 +474,9 @@ textarea {
 }
 
 .export-host {
-  left: -10000px;
-  position: fixed;
+  left: 0;
+  pointer-events: none;
+  position: absolute;
   top: 0;
   width: var(--page-width);
   z-index: -1;
