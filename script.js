@@ -369,8 +369,10 @@ async function downloadPdf() {
     const clone = elements.previewPage.cloneNode(true);
     clone.removeAttribute("id");
     clone.style.maxWidth = "none";
-    clone.style.minHeight = `${page.height}mm`;
+    clone.style.minHeight = `${Math.max(page.height - page.marginTop - page.marginBottom, 10)}mm`;
     clone.style.width = `${page.width}mm`;
+    clone.style.paddingTop = "0";
+    clone.style.paddingBottom = "0";
     elements.exportHost.replaceChildren(clone);
 
     const canvas = await window.html2canvas(clone, {
@@ -413,12 +415,19 @@ function getJsPdfConstructor() {
 
 function addCanvasPagesToPdf(pdf, canvas, page, orientation) {
   const pageWidthPx = canvas.width;
-  const pageHeightPx = Math.floor((page.height / page.width) * pageWidthPx);
+  const pxPerMm = pageWidthPx / page.width;
+  const usableHeightMm = Math.max(page.height - page.marginTop - page.marginBottom, 10);
+  const usableHeightPx = Math.floor(usableHeightMm * pxPerMm);
+  const sourceContext = canvas.getContext("2d", { willReadFrequently: true });
   let renderedHeightPx = 0;
   let pageIndex = 0;
 
   while (renderedHeightPx < canvas.height) {
-    const sliceHeightPx = Math.min(pageHeightPx, canvas.height - renderedHeightPx);
+    let sliceHeightPx = Math.min(usableHeightPx, canvas.height - renderedHeightPx);
+    if (renderedHeightPx + sliceHeightPx < canvas.height) {
+      sliceHeightPx = findSafeSliceHeight(sourceContext, pageWidthPx, renderedHeightPx, sliceHeightPx);
+    }
+
     const pageCanvas = document.createElement("canvas");
     pageCanvas.width = pageWidthPx;
     pageCanvas.height = sliceHeightPx;
@@ -442,12 +451,65 @@ function addCanvasPagesToPdf(pdf, canvas, page, orientation) {
       pdf.addPage([page.width, page.height], orientation);
     }
 
-    const imageHeightMm = (sliceHeightPx / pageWidthPx) * page.width;
-    pdf.addImage(pageCanvas.toDataURL("image/jpeg", 0.98), "JPEG", 0, 0, page.width, imageHeightMm);
+    const imageHeightMm = sliceHeightPx / pxPerMm;
+    pdf.addImage(
+      pageCanvas.toDataURL("image/jpeg", 0.98),
+      "JPEG",
+      0,
+      page.marginTop,
+      page.width,
+      imageHeightMm,
+    );
 
     renderedHeightPx += sliceHeightPx;
     pageIndex += 1;
   }
+}
+
+function findSafeSliceHeight(context, widthPx, topPx, sliceHeightPx) {
+  const lookbackPx = Math.min(Math.floor(sliceHeightPx * 0.35), sliceHeightPx - 1);
+  if (lookbackPx < 1) {
+    return sliceHeightPx;
+  }
+
+  const scanTopPx = topPx + sliceHeightPx - lookbackPx;
+  const pixels = context.getImageData(0, scanTopPx, widthPx, lookbackPx).data;
+  const maxInkPixels = Math.max(4, Math.floor(widthPx * 0.005));
+
+  for (let row = lookbackPx - 1; row >= 0; row -= 1) {
+    if (isRowSafeToCut(pixels, row, widthPx, maxInkPixels)) {
+      return sliceHeightPx - lookbackPx + row + 1;
+    }
+  }
+
+  return sliceHeightPx;
+}
+
+function isRowSafeToCut(pixels, row, widthPx, maxInkPixels) {
+  const rowOffset = row * widthPx * 4;
+  let inkPixels = 0;
+  let minChannel = 255;
+  let maxChannel = 0;
+
+  for (let x = 0; x < widthPx; x += 1) {
+    const offset = rowOffset + x * 4;
+    for (let channel = 0; channel < 3; channel += 1) {
+      const value = pixels[offset + channel];
+      if (value < minChannel) minChannel = value;
+      if (value > maxChannel) maxChannel = value;
+    }
+
+    if (pixels[offset] < 246 || pixels[offset + 1] < 246 || pixels[offset + 2] < 246) {
+      inkPixels += 1;
+      if (inkPixels > maxInkPixels && maxChannel - minChannel > 20) {
+        return false;
+      }
+    }
+  }
+
+  // Nearly-blank rows (gaps between lines) or flat-colored rows
+  // (gaps inside dark code blocks) are safe places to break a page.
+  return inkPixels <= maxInkPixels || maxChannel - minChannel <= 20;
 }
 
 async function printPdf() {
