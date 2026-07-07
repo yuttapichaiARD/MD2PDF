@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="แปลงไฟล์ Markdown เป็น PDF ด้วยฟอนต์ Noto ผ่านเบราว์เซอร์"
+    />
+    <title>MD to PDF - Noto</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700&family=Noto+Sans+Thai:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+    <script defer src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
+    <script defer src="script.js"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Markdown PDF</p>
+        <h1>MD to PDF</h1>
+      </div>
+      <span class="font-badge">Noto Sans Thai</span>
+    </header>
+
+    <main class="app-shell">
+      <section class="control-panel" aria-label="ตัวควบคุมไฟล์และ PDF">
+        <label class="drop-zone" id="dropZone">
+          <input id="fileInput" type="file" accept=".md,.markdown,text/markdown,text/plain" />
+          <span class="drop-title">อัปโหลดไฟล์ .md</span>
+          <span class="drop-meta" id="fileMeta">ลากไฟล์มาวาง หรือคลิกเพื่อเลือกไฟล์</span>
+        </label>
+
+        <div class="field-grid">
+          <label class="field">
+            <span>ชื่อ PDF</span>
+            <input id="fileName" type="text" value="document.pdf" />
+          </label>
+
+          <label class="field">
+            <span>ขนาดกระดาษ</span>
+            <select id="paperSize">
+              <option value="a4" selected>A4</option>
+              <option value="letter">Letter</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>แนวกระดาษ</span>
+            <select id="orientation">
+              <option value="portrait" selected>ตั้ง</option>
+              <option value="landscape">นอน</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>ขอบกระดาษ</span>
+            <select id="marginSize">
+              <option value="10">แคบ</option>
+              <option value="14" selected>ปกติ</option>
+              <option value="20">กว้าง</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="actions">
+          <button id="downloadPdf" class="primary-button" type="button">ดาวน์โหลด PDF</button>
+          <button id="printPdf" class="ghost-button" type="button">พิมพ์</button>
+        </div>
+
+        <label class="editor-label" for="markdownInput">Markdown</label>
+        <textarea id="markdownInput" spellcheck="false"></textarea>
+      </section>
+
+      <section class="preview-panel" aria-label="ตัวอย่าง PDF">
+        <div class="preview-toolbar">
+          <span id="statusText">พร้อมแปลง</span>
+          <span id="pageLabel">A4 ตั้ง</span>
+        </div>
+        <div class="preview-stage">
+          <article class="preview-page" id="previewPage">
+            <div class="markdown-body" id="preview"></div>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <div class="export-host" id="exportHost" aria-hidden="true"></div>
+    <style id="printStyle"></style>
+  </body>
+</html>
