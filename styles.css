@@ -30,6 +30,34 @@
   color-scheme: light;
 }
 
+@font-face {
+  font-family: "THSarabun";
+  font-style: normal;
+  font-weight: 400;
+  src: url("resource/font/THSarabun.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "THSarabun";
+  font-style: italic;
+  font-weight: 400;
+  src: url("resource/font/THSarabun Italic.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "THSarabun";
+  font-style: normal;
+  font-weight: 700;
+  src: url("resource/font/THSarabun Bold.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "THSarabun";
+  font-style: italic;
+  font-weight: 700;
+  src: url("resource/font/THSarabun BoldItalic.ttf") format("truetype");
+}
+
 * {
   box-sizing: border-box;
 }
@@ -114,6 +142,34 @@ textarea {
   position: sticky;
   scrollbar-gutter: stable;
   top: 0;
+}
+
+.mode-tabs {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  grid-template-columns: 1fr 1fr;
+  padding: 4px;
+}
+
+.mode-tab {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  min-height: 38px;
+  min-width: 0;
+  padding-inline: 6px;
+  white-space: nowrap;
+}
+
+.mode-tab.is-active {
+  background: #ffffff;
+  border-color: var(--line);
+  box-shadow: 0 1px 4px rgba(36, 35, 33, 0.08);
+  color: var(--accent-strong);
 }
 
 .drop-zone {
@@ -329,6 +385,10 @@ textarea {
   padding: var(--page-margin-top) var(--page-margin-right) var(--page-margin-bottom)
     var(--page-margin-left);
   width: var(--page-width);
+}
+
+body.docx-mode .preview-page {
+  font-family: "THSarabun", "Noto Sans Thai", "Noto Sans", system-ui, sans-serif;
 }
 
 .markdown-body {

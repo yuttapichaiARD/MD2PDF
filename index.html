@@ -24,6 +24,7 @@
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"></script>
     <script defer src="script.js"></script>
   </head>
   <body>
@@ -37,6 +38,15 @@
 
     <main class="app-shell">
       <section class="control-panel" aria-label="ตัวควบคุมไฟล์และ PDF">
+        <div class="mode-tabs" role="tablist" aria-label="Export format">
+          <button id="pdfTab" class="mode-tab is-active" type="button" role="tab" aria-selected="true">
+            MD to PDF
+          </button>
+          <button id="docxTab" class="mode-tab" type="button" role="tab" aria-selected="false">
+            MD to DOCX
+          </button>
+        </div>
+
         <label class="drop-zone" id="dropZone">
           <input id="fileInput" type="file" accept=".md,.markdown,text/markdown,text/plain" />
           <span class="drop-title">อัปโหลดไฟล์ .md</span>
