@@ -57,7 +57,14 @@ const typographyDefaults = {
 };
 
 const pdfMetadataSource = "yuttapichaiARD-MD2PDF";
-const docxFontFamily = "THSarabun";
+const docxFontFamily = "TH SarabunPSK";
+const docxPreviewFontFamily = "THSarabun";
+const docxEmbeddedFonts = [
+  { style: "regular", fileName: "THSarabun.ttf", embedTag: "embedRegular" },
+  { style: "bold", fileName: "THSarabun Bold.ttf", embedTag: "embedBold" },
+  { style: "italic", fileName: "THSarabun Italic.ttf", embedTag: "embedItalic" },
+  { style: "boldItalic", fileName: "THSarabun BoldItalic.ttf", embedTag: "embedBoldItalic" },
+];
 
 const state = {
   sourceName: "document.md",
@@ -557,7 +564,7 @@ function isRowSafeToCut(pixels, row, widthPx, maxInkPixels) {
 }
 
 async function downloadDocx() {
-  if (!window.docx) {
+  if (!window.docx || !window.JSZip) {
     setStatus("โหลดตัวแปลง DOCX ไม่สำเร็จ");
     return;
   }
@@ -566,7 +573,8 @@ async function downloadDocx() {
 
   try {
     const doc = createDocxDocument();
-    const blob = await window.docx.Packer.toBlob(doc);
+    const packedBlob = await window.docx.Packer.toBlob(doc);
+    const blob = await embedFontsInDocx(packedBlob);
     downloadBlob(blob, getDocxName());
     setStatus("ดาวน์โหลดแล้ว");
   } catch (error) {
@@ -575,6 +583,146 @@ async function downloadDocx() {
   } finally {
     setBusy(false);
   }
+}
+
+async function embedFontsInDocx(docxBlob) {
+  const zip = await window.JSZip.loadAsync(docxBlob);
+  const fontEntries = await Promise.all(
+    docxEmbeddedFonts.map(async (font, index) => {
+      const fontBytes = await fetchFontBytes(`resource/font/${encodeURIComponent(font.fileName)}`);
+      const fontKey = createFontKey(index);
+      const targetName = `${font.style}.odttf`;
+      zip.file(`word/fonts/${targetName}`, obfuscateFont(fontBytes, fontKey));
+      return {
+        ...font,
+        fontKey,
+        relId: `rIdEmbedFont${index + 1}`,
+        targetName,
+      };
+    }),
+  );
+
+  zip.file("word/fontTable.xml", createFontTableXml(fontEntries));
+  zip.file("word/_rels/fontTable.xml.rels", createFontTableRelationshipsXml(fontEntries));
+  await ensureFontTableDocumentRelationship(zip);
+  await ensureFontContentType(zip);
+
+  return zip.generateAsync({
+    type: "blob",
+    mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  });
+}
+
+async function fetchFontBytes(url) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Cannot load font: ${url}`);
+  }
+
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+function createFontKey(index) {
+  const base = [0x59, 0x75, 0x74, 0x74, 0x61, 0x70, 0x69, 0x63, 0x68, 0x61, 0x69, 0x41, 0x52, 0x44, 0x00, index + 1];
+  const hex = base.map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `{${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}}`;
+}
+
+function obfuscateFont(fontBytes, fontKey) {
+  const result = new Uint8Array(fontBytes);
+  const keyBytes = fontKey
+    .replace(/[{}-]/g, "")
+    .match(/../g)
+    .map((part) => Number.parseInt(part, 16))
+    .reverse();
+
+  for (let index = 0; index < Math.min(32, result.length); index += 1) {
+    result[index] ^= keyBytes[index % keyBytes.length];
+  }
+
+  return result;
+}
+
+function createFontTableXml(fontEntries) {
+  const embedTags = fontEntries
+    .map(
+      (font) =>
+        `<w:${font.embedTag} r:id="${font.relId}" w:fontKey="${font.fontKey}" w:subsetted="0"/>`,
+    )
+    .join("");
+
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:fonts xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <w:font w:name="${escapeXml(docxFontFamily)}">
+    <w:charset w:val="00"/>
+    <w:family w:val="roman"/>
+    <w:pitch w:val="variable"/>
+    ${embedTags}
+  </w:font>
+</w:fonts>`;
+}
+
+function createFontTableRelationshipsXml(fontEntries) {
+  const relationships = fontEntries
+    .map(
+      (font) =>
+        `<Relationship Id="${font.relId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/font" Target="fonts/${font.targetName}"/>`,
+    )
+    .join("");
+
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${relationships}</Relationships>`;
+}
+
+async function ensureFontTableDocumentRelationship(zip) {
+  const path = "word/_rels/document.xml.rels";
+  const xml = await zip.file(path).async("string");
+  if (xml.includes("fontTable.xml")) {
+    return;
+  }
+
+  const relId = createUniqueRelationshipId(xml, "rIdFontTable");
+  const relationship = `<Relationship Id="${relId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/fontTable" Target="fontTable.xml"/>`;
+  zip.file(path, xml.replace("</Relationships>", `${relationship}</Relationships>`));
+}
+
+async function ensureFontContentType(zip) {
+  const path = "[Content_Types].xml";
+  let xml = await zip.file(path).async("string");
+
+  if (!xml.includes('PartName="/word/fontTable.xml"')) {
+    xml = xml.replace(
+      "</Types>",
+      '<Override PartName="/word/fontTable.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.fontTable+xml"/></Types>',
+    );
+  }
+
+  if (!xml.includes('Extension="odttf"')) {
+    xml = xml.replace(
+      "</Types>",
+      '<Default Extension="odttf" ContentType="application/vnd.openxmlformats-officedocument.obfuscatedFont"/></Types>',
+    );
+  }
+
+  zip.file(path, xml);
+}
+
+function createUniqueRelationshipId(xml, baseId) {
+  let index = 1;
+  let relId = baseId;
+  while (xml.includes(`Id="${relId}"`)) {
+    index += 1;
+    relId = `${baseId}${index}`;
+  }
+  return relId;
+}
+
+function escapeXml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 function createDocxDocument() {
