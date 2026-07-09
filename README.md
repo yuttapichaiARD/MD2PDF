@@ -11,6 +11,7 @@
 - ปรับขนาดฟอนต์ของเนื้อหา, `#`, `##`, `###`, `####`, H5/H6, list, quote, table, inline code และ code block
 - ลงสี syntax highlighting ให้ code block ตามภาษาที่ระบุ เช่น ` ```js `, ` ```python `, ` ```html `
 - เลือกความละเอียดตอน export PDF
+- PDF export เป็น text layer คัดลอกข้อความได้ และเก็บ hyperlink จาก Markdown
 - DOCX ใช้และฝังฟอนต์ `TH SarabunPSK` จาก `resource/font/`
 - แปลงทั้งหมดในเบราว์เซอร์ ไฟล์ Markdown ไม่ถูกอัปโหลดไปเซิร์ฟเวอร์
 
