@@ -275,11 +275,48 @@ function renderMarkdown() {
   });
 
   elements.preview.innerHTML = cleanHtml;
+  ensurePreviewHeadingIds();
   elements.preview.querySelectorAll("a[href]").forEach((anchor) => {
-    anchor.setAttribute("target", "_blank");
-    anchor.setAttribute("rel", "noreferrer");
+    if (!isInternalHashLink(anchor.getAttribute("href") || "")) {
+      anchor.setAttribute("target", "_blank");
+      anchor.setAttribute("rel", "noreferrer");
+    }
   });
   applyCodeHighlighting();
+}
+
+function ensurePreviewHeadingIds() {
+  const usedIds = new Map();
+  elements.preview.querySelectorAll("h1, h2, h3, h4, h5, h6").forEach((heading) => {
+    const baseId = slugifyHeading(heading.textContent || "") || "section";
+    const count = usedIds.get(baseId) || 0;
+    usedIds.set(baseId, count + 1);
+    heading.id = count ? `${baseId}-${count + 1}` : baseId;
+  });
+}
+
+function slugifyHeading(text) {
+  return text
+    .trim()
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^\p{L}\p{M}\p{N}\s-]/gu, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function isInternalHashLink(href) {
+  return href.trim().startsWith("#");
+}
+
+function normalizeHashTarget(href) {
+  const hash = String(href || "").trim().replace(/^#/, "");
+  try {
+    return decodeURIComponent(hash).toLowerCase();
+  } catch {
+    return hash.toLowerCase();
+  }
 }
 
 function applyCodeHighlighting() {
@@ -471,6 +508,7 @@ function renderTextPdf(pdf, page) {
   elements.preview.childNodes.forEach((node) => {
     renderPdfNode(node, context);
   });
+  resolvePdfInternalLinks(context);
 }
 
 function createPdfRenderContext(pdf, page) {
@@ -482,6 +520,8 @@ function createPdfRenderContext(pdf, page) {
     right: page.width - page.marginRight,
     bottom: page.height - page.marginBottom,
     usableWidth: page.width - page.marginLeft - page.marginRight,
+    anchors: new Map(),
+    pendingInternalLinks: [],
   };
 }
 
@@ -501,7 +541,9 @@ function renderPdfNode(node, context) {
   const tagName = node.tagName.toLowerCase();
   if (/^h[1-6]$/.test(tagName)) {
     const level = Number(tagName.slice(1));
-    drawPdfParagraph(context, inlineNodesToPdfRuns(node.childNodes, { bold: true }), getPdfTextStyle(`h${Math.min(level, 5)}`));
+    drawPdfParagraph(context, inlineNodesToPdfRuns(node.childNodes, { bold: true }), getPdfTextStyle(`h${Math.min(level, 5)}`), {
+      anchorId: node.id,
+    });
     drawPdfRule(context);
     return;
   }
@@ -582,6 +624,9 @@ function drawPdfParagraph(context, runs, style, options = {}) {
   }
 
   ensurePdfSpace(context, lines.length * lineHeightMm);
+  if (options.anchorId) {
+    recordPdfAnchor(context, options.anchorId);
+  }
 
   lines.forEach((line) => {
     let cursorX = left;
@@ -595,6 +640,10 @@ function drawPdfParagraph(context, runs, style, options = {}) {
         pdf.setTextColor("#145c4d");
         pdf.text(run.text, cursorX, baselineY);
         pdf.link(cursorX, context.cursorY, runWidth, lineHeightMm, { url: run.href });
+      } else if (run.internalHref) {
+        pdf.setTextColor("#145c4d");
+        pdf.text(run.text, cursorX, baselineY);
+        queuePdfInternalLink(context, run.internalHref, cursorX, context.cursorY, runWidth, lineHeightMm);
       }
       cursorX += runWidth;
     });
@@ -603,6 +652,47 @@ function drawPdfParagraph(context, runs, style, options = {}) {
 
   pdf.setTextColor("#191817");
   context.cursorY += options.after ?? lineHeightMm * 0.35;
+}
+
+function recordPdfAnchor(context, anchorId) {
+  if (!anchorId || context.anchors.has(anchorId)) {
+    return;
+  }
+  context.anchors.set(anchorId, {
+    pageNumber: context.pdf.internal.getCurrentPageInfo().pageNumber,
+    top: context.cursorY,
+  });
+}
+
+function queuePdfInternalLink(context, targetId, x, y, width, height) {
+  if (!targetId || width <= 0 || height <= 0) {
+    return;
+  }
+  context.pendingInternalLinks.push({
+    targetId,
+    pageNumber: context.pdf.internal.getCurrentPageInfo().pageNumber,
+    x,
+    y,
+    width,
+    height,
+  });
+}
+
+function resolvePdfInternalLinks(context) {
+  const { pdf } = context;
+  const lastPage = pdf.internal.getCurrentPageInfo().pageNumber;
+  context.pendingInternalLinks.forEach((link) => {
+    const target = context.anchors.get(link.targetId);
+    if (!target) {
+      return;
+    }
+    pdf.setPage(link.pageNumber);
+    pdf.link(link.x, link.y, link.width, link.height, {
+      pageNumber: target.pageNumber,
+      top: target.top,
+    });
+  });
+  pdf.setPage(lastPage);
 }
 
 function normalizePdfRuns(runs, style) {
@@ -834,8 +924,13 @@ function inlineNodeToPdfRuns(node, inherited) {
     bold: inherited.bold || ["strong", "b", "th"].includes(tagName),
     italic: inherited.italic || ["em", "i"].includes(tagName),
   };
-  if (tagName === "a" && node.href) {
-    next.href = node.href;
+  if (tagName === "a") {
+    const rawHref = node.getAttribute("href") || "";
+    if (isInternalHashLink(rawHref)) {
+      next.internalHref = normalizeHashTarget(rawHref);
+    } else if (node.href) {
+      next.href = node.href;
+    }
     next.color = "#145c4d";
   }
   if (tagName === "code") {
