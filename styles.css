@@ -31,6 +31,34 @@
 }
 
 @font-face {
+  font-family: "Noto Sans Thai Local";
+  font-style: normal;
+  font-weight: 400;
+  src: url("resource/font/NotoSansThai-Regular.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Noto Sans Thai Local";
+  font-style: normal;
+  font-weight: 700;
+  src: url("resource/font/NotoSansThai-Bold.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Noto Sans Mono Local";
+  font-style: normal;
+  font-weight: 400;
+  src: url("resource/font/NotoSansMono-Regular.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Noto Sans Mono Local";
+  font-style: normal;
+  font-weight: 700;
+  src: url("resource/font/NotoSansMono-Bold.ttf") format("truetype");
+}
+
+@font-face {
   font-family: "THSarabun";
   font-style: normal;
   font-weight: 400;
@@ -71,7 +99,7 @@ body {
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: "Noto Sans Thai", "Noto Sans", system-ui, sans-serif;
+  font-family: "Noto Sans Thai Local", "Noto Sans Thai", "Noto Sans", system-ui, sans-serif;
   letter-spacing: 0;
 }
 
@@ -378,7 +406,7 @@ textarea {
   background: #ffffff;
   box-shadow: var(--shadow);
   color: #191817;
-  font-family: "Noto Sans Thai", "Noto Sans", system-ui, sans-serif;
+  font-family: "Noto Sans Thai Local", "Noto Sans Thai", "Noto Sans", system-ui, sans-serif;
   margin: 0 auto;
   max-width: 100%;
   min-height: var(--page-height);
@@ -468,7 +496,7 @@ body.docx-mode .preview-page {
 .markdown-body code {
   background: #f0f2f1;
   border-radius: 5px;
-  font-family: "Noto Sans", Consolas, monospace;
+  font-family: "Noto Sans Mono Local", "Noto Sans Mono", Consolas, monospace;
   font-size: var(--font-inline-code);
   padding: 0.12em 0.35em;
 }
@@ -495,6 +523,17 @@ body.docx-mode .preview-page {
   background: transparent;
   color: inherit;
   padding: 0;
+}
+
+.markdown-body .math-inline {
+  font-size: 1em;
+}
+
+.markdown-body .math-block {
+  display: block;
+  margin: 1.1em 0;
+  overflow-x: auto;
+  text-align: center;
 }
 
 .markdown-body table {

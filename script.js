@@ -66,12 +66,15 @@ const docxEmbeddedFonts = [
   { style: "boldItalic", fileName: "THSarabun BoldItalic.ttf", embedTag: "embedBoldItalic" },
 ];
 const pdfEmbeddedFonts = [
-  { style: "normal", fileName: "THSarabun.ttf" },
-  { style: "bold", fileName: "THSarabun Bold.ttf" },
-  { style: "italic", fileName: "THSarabun Italic.ttf" },
-  { style: "bolditalic", fileName: "THSarabun BoldItalic.ttf" },
+  { family: "NotoSansThai", style: "normal", fileName: "NotoSansThai-Regular.ttf" },
+  { family: "NotoSansThai", style: "bold", fileName: "NotoSansThai-Bold.ttf" },
+  { family: "NotoSansThai", style: "italic", fileName: "NotoSansThai-Regular.ttf" },
+  { family: "NotoSansThai", style: "bolditalic", fileName: "NotoSansThai-Bold.ttf" },
+  { family: "NotoSansMono", style: "normal", fileName: "NotoSansMono-Regular.ttf" },
+  { family: "NotoSansMono", style: "bold", fileName: "NotoSansMono-Bold.ttf" },
 ];
-const pdfFontFamily = "THSarabunPSK";
+const pdfFontFamily = "NotoSansThai";
+const pdfMonoFontFamily = "NotoSansMono";
 
 const state = {
   sourceName: "document.md",
@@ -269,9 +272,9 @@ function renderMarkdown() {
     gfm: true,
   });
 
-  const html = window.marked.parse(markdown);
+  const html = window.marked.parse(injectLatexPlaceholders(markdown));
   const cleanHtml = window.DOMPurify.sanitize(html, {
-    ADD_ATTR: ["target"],
+    ADD_ATTR: ["target", "data-tex", "data-display"],
   });
 
   elements.preview.innerHTML = cleanHtml;
@@ -283,6 +286,69 @@ function renderMarkdown() {
     }
   });
   applyCodeHighlighting();
+  renderLatexBlocks();
+}
+
+function injectLatexPlaceholders(markdown) {
+  const protectedSegments = [];
+  const protect = (match) => {
+    const token = `@@MD2PDF_PROTECTED_${protectedSegments.length}@@`;
+    protectedSegments.push(match);
+    return token;
+  };
+
+  const protectedMarkdown = markdown
+    .replace(/(^|\n)(```[\s\S]*?\n```|~~~[\s\S]*?\n~~~)/g, (match) => protect(match))
+    .replace(/`[^`\n]+`/g, (match) => protect(match));
+
+  const withDisplayMath = protectedMarkdown
+    .replace(/\$\$([\s\S]+?)\$\$/g, (_, tex) => createLatexHtml(tex, true))
+    .replace(/\\\[([\s\S]+?)\\\]/g, (_, tex) => createLatexHtml(tex, true));
+
+  const withInlineMath = withDisplayMath
+    .replace(/\\\(([\s\S]+?)\\\)/g, (_, tex) => createLatexHtml(tex, false))
+    .replace(/(^|[^\\$])\$(?!\s|\$)([^\n$]+?)(?<!\s)\$(?!\$)/g, (_, prefix, tex) => `${prefix}${createLatexHtml(tex, false)}`);
+
+  return withInlineMath.replace(/@@MD2PDF_PROTECTED_(\d+)@@/g, (_, index) => protectedSegments[Number(index)] || "");
+}
+
+function createLatexHtml(tex, displayMode) {
+  const source = String(tex || "").trim();
+  const tagName = displayMode ? "div" : "span";
+  const className = displayMode ? "math-block" : "math-inline";
+  return `<${tagName} class="${className}" data-tex="${escapeHtmlAttribute(source)}" data-display="${displayMode ? "true" : "false"}">${escapeHtml(source)}</${tagName}>`;
+}
+
+function renderLatexBlocks() {
+  elements.preview.querySelectorAll("[data-tex]").forEach((element) => {
+    const tex = element.getAttribute("data-tex") || "";
+    const displayMode = element.getAttribute("data-display") === "true";
+    if (!window.katex) {
+      element.textContent = displayMode ? `$$${tex}$$` : `$${tex}$`;
+      return;
+    }
+
+    try {
+      window.katex.render(tex, element, {
+        displayMode,
+        throwOnError: false,
+        strict: "ignore",
+      });
+    } catch {
+      element.textContent = displayMode ? `$$${tex}$$` : `$${tex}$`;
+    }
+  });
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function escapeHtmlAttribute(value) {
+  return escapeHtml(value).replace(/"/g, "&quot;");
 }
 
 function ensurePreviewHeadingIds() {
@@ -300,9 +366,8 @@ function slugifyHeading(text) {
     .trim()
     .toLowerCase()
     .normalize("NFKD")
-    .replace(/[^\p{L}\p{M}\p{N}\s-]/gu, "")
     .replace(/\s+/g, "-")
-    .replace(/-+/g, "-")
+    .replace(/[^\p{L}\p{M}\p{N}_-]/gu, "")
     .replace(/^-|-$/g, "");
 }
 
@@ -487,7 +552,7 @@ async function registerPdfFonts(pdf) {
       const bytes = await fetchFontBytes(`resource/font/${encodeURIComponent(font.fileName)}`);
       const base64 = bytesToBase64(bytes);
       pdf.addFileToVFS(font.fileName, base64);
-      pdf.addFont(font.fileName, pdfFontFamily, font.style);
+      pdf.addFont(font.fileName, font.family, font.style);
     }),
   );
 
@@ -509,6 +574,7 @@ function renderTextPdf(pdf, page) {
     renderPdfNode(node, context);
   });
   resolvePdfInternalLinks(context);
+  addPdfBookmarks(context);
 }
 
 function createPdfRenderContext(pdf, page) {
@@ -521,7 +587,11 @@ function createPdfRenderContext(pdf, page) {
     bottom: page.height - page.marginBottom,
     usableWidth: page.width - page.marginLeft - page.marginRight,
     anchors: new Map(),
+    anchorAliases: new Map(),
     pendingInternalLinks: [],
+    bookmarks: [],
+    tableCount: 0,
+    codeCount: 0,
   };
 }
 
@@ -539,10 +609,17 @@ function renderPdfNode(node, context) {
   }
 
   const tagName = node.tagName.toLowerCase();
+  if (node.hasAttribute("data-tex")) {
+    drawPdfMathBlock(context, node);
+    return;
+  }
+
   if (/^h[1-6]$/.test(tagName)) {
     const level = Number(tagName.slice(1));
     drawPdfParagraph(context, inlineNodesToPdfRuns(node.childNodes, { bold: true }), getPdfTextStyle(`h${Math.min(level, 5)}`), {
       anchorId: node.id,
+      bookmarkTitle: level <= 2 ? node.textContent.trim() : "",
+      bookmarkLevel: level,
     });
     drawPdfRule(context);
     return;
@@ -627,6 +704,9 @@ function drawPdfParagraph(context, runs, style, options = {}) {
   if (options.anchorId) {
     recordPdfAnchor(context, options.anchorId);
   }
+  if (options.bookmarkTitle) {
+    recordPdfBookmark(context, options.bookmarkTitle, options.bookmarkLevel || 1);
+  }
 
   lines.forEach((line) => {
     let cursorX = left;
@@ -662,6 +742,20 @@ function recordPdfAnchor(context, anchorId) {
     pageNumber: context.pdf.internal.getCurrentPageInfo().pageNumber,
     top: context.cursorY,
   });
+  context.anchorAliases.set(canonicalizeAnchorId(anchorId), anchorId);
+}
+
+function recordPdfBookmark(context, title, level = 1) {
+  const cleanTitle = String(title || "").replace(/\s+/g, " ").trim();
+  if (!cleanTitle) {
+    return;
+  }
+  context.bookmarks.push({
+    title: cleanTitle,
+    level,
+    pageNumber: context.pdf.internal.getCurrentPageInfo().pageNumber,
+    top: context.cursorY,
+  });
 }
 
 function queuePdfInternalLink(context, targetId, x, y, width, height) {
@@ -682,7 +776,7 @@ function resolvePdfInternalLinks(context) {
   const { pdf } = context;
   const lastPage = pdf.internal.getCurrentPageInfo().pageNumber;
   context.pendingInternalLinks.forEach((link) => {
-    const target = context.anchors.get(link.targetId);
+    const target = context.anchors.get(link.targetId) || context.anchors.get(context.anchorAliases.get(canonicalizeAnchorId(link.targetId)));
     if (!target) {
       return;
     }
@@ -693,6 +787,37 @@ function resolvePdfInternalLinks(context) {
     });
   });
   pdf.setPage(lastPage);
+}
+
+function canonicalizeAnchorId(anchorId) {
+  return String(anchorId || "")
+    .trim()
+    .toLowerCase()
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function addPdfBookmarks(context) {
+  const { pdf } = context;
+  if (!pdf.outline || typeof pdf.outline.add !== "function") {
+    return;
+  }
+
+  const parentsByLevel = new Map();
+  context.bookmarks.forEach((bookmark) => {
+    const level = Math.max(1, Math.min(Number(bookmark.level) || 1, 3));
+    const parent = level > 1 ? parentsByLevel.get(level - 1) || null : null;
+    const outlineItem = pdf.outline.add(parent, bookmark.title, {
+      pageNumber: bookmark.pageNumber,
+      top: bookmark.top,
+    });
+    parentsByLevel.set(level, outlineItem);
+    [...parentsByLevel.keys()].forEach((storedLevel) => {
+      if (storedLevel > level) {
+        parentsByLevel.delete(storedLevel);
+      }
+    });
+  });
 }
 
 function normalizePdfRuns(runs, style) {
@@ -773,8 +898,20 @@ function trimPdfLine(line) {
 }
 
 function setPdfRunFont(pdf, run, fallbackFontSize) {
-  const style = run.bold && run.italic ? "bolditalic" : run.bold ? "bold" : run.italic ? "italic" : "normal";
-  pdf.setFont(pdfFontFamily, style);
+  const family = run.fontFamily || pdfFontFamily;
+  const style =
+    family === pdfMonoFontFamily
+      ? run.bold
+        ? "bold"
+        : "normal"
+      : run.bold && run.italic
+        ? "bolditalic"
+        : run.bold
+          ? "bold"
+          : run.italic
+            ? "italic"
+            : "normal";
+  pdf.setFont(family, style);
   pdf.setFontSize(run.fontSize || fallbackFontSize);
 }
 
@@ -813,6 +950,18 @@ function drawPdfQuote(context, blockquote) {
   context.pdf.line(context.left, startY, context.left, context.cursorY - 1);
 }
 
+function drawPdfMathBlock(context, element) {
+  const tex = element.getAttribute("data-tex") || element.textContent.trim();
+  const displayMode = element.getAttribute("data-display") === "true";
+  const text = displayMode ? `$$${tex}$$` : `$${tex}$`;
+  const style = getPdfTextStyle(displayMode ? "body" : "inlineCode");
+  drawPdfParagraph(context, [{ text, fontFamily: pdfMonoFontFamily }], style, {
+    left: displayMode ? context.left + 6 : context.left,
+    width: displayMode ? context.usableWidth - 12 : context.usableWidth,
+    after: displayMode ? 4 : undefined,
+  });
+}
+
 function drawPdfCodeBlock(context, preElement) {
   const style = getPdfTextStyle("codeBlock");
   const text = preElement.textContent.replace(/\n$/, "");
@@ -822,16 +971,26 @@ function drawPdfCodeBlock(context, preElement) {
   ensurePdfSpace(context, blockHeight);
 
   const { pdf } = context;
+  context.codeCount += 1;
+  const language = getCodeLanguage(preElement);
+  recordPdfBookmark(context, `Code ${context.codeCount}${language ? ` (${language})` : ""}`, 3);
   pdf.setFillColor("#202321");
   pdf.roundedRect(context.left, context.cursorY, context.usableWidth, blockHeight, 1.8, 1.8, "F");
   pdf.setTextColor("#f7f7f2");
-  pdf.setFont(pdfFontFamily, "normal");
+  pdf.setFont(pdfMonoFontFamily, "normal");
   pdf.setFontSize(style.fontSize);
   lines.forEach((line, index) => {
     pdf.text(line || " ", context.left + 3, context.cursorY + 4 + lineHeightMm * (index + 0.72));
   });
   pdf.setTextColor("#191817");
   context.cursorY += blockHeight + 4;
+}
+
+function getCodeLanguage(preElement) {
+  const code = preElement.querySelector("code");
+  const className = code ? code.className : "";
+  const match = String(className).match(/language-([a-z0-9_+-]+)/i);
+  return match ? match[1] : "";
 }
 
 function drawPdfTable(context, tableElement) {
@@ -845,6 +1004,8 @@ function drawPdfTable(context, tableElement) {
   if (!rows.length) return;
 
   const { pdf } = context;
+  context.tableCount += 1;
+  recordPdfBookmark(context, `Table ${context.tableCount}`, 3);
   const columnCount = Math.max(...rows.map((row) => row.length));
   const cellPadding = 2.5;
   const columnWidth = context.usableWidth / columnCount;
@@ -916,6 +1077,18 @@ function inlineNodeToPdfRuns(node, inherited) {
   }
 
   const tagName = node.tagName.toLowerCase();
+  if (node.hasAttribute("data-tex")) {
+    const tex = node.getAttribute("data-tex") || node.textContent.trim();
+    return [
+      {
+        ...inherited,
+        text: `$${tex}$`,
+        fontFamily: pdfMonoFontFamily,
+        fontSize: getPdfTextStyle("inlineCode").fontSize,
+      },
+    ];
+  }
+
   if (tagName === "br") {
     return [{ ...inherited, text: "\n" }];
   }
@@ -935,6 +1108,7 @@ function inlineNodeToPdfRuns(node, inherited) {
   }
   if (tagName === "code") {
     next.fontSize = getPdfTextStyle("inlineCode").fontSize;
+    next.fontFamily = pdfMonoFontFamily;
   }
   return inlineNodesToPdfRuns(node.childNodes, next);
 }
@@ -1311,6 +1485,11 @@ function nodeToDocxBlocks(node) {
   }
 
   const tagName = node.tagName.toLowerCase();
+  if (node.hasAttribute("data-tex")) {
+    const tex = node.getAttribute("data-tex") || "";
+    const displayMode = node.getAttribute("data-display") === "true";
+    return [createDocxParagraph(displayMode ? `$$${tex}$$` : `$${tex}$`)];
+  }
 
   if (/^h[1-6]$/.test(tagName)) {
     return [createHeadingParagraph(node, Number(tagName.slice(1)))];
@@ -1481,6 +1660,11 @@ function inlineNodeToRuns(node, inherited) {
   }
 
   const tagName = node.tagName.toLowerCase();
+  if (node.hasAttribute("data-tex")) {
+    const tex = node.getAttribute("data-tex") || "";
+    return [createTextRun(`$${tex}$`, inherited)];
+  }
+
   const next = {
     ...inherited,
     bold: inherited.bold || ["strong", "b", "th"].includes(tagName),

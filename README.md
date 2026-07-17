@@ -1,6 +1,6 @@
 # MD to PDF - Noto
 
-เว็บ static สำหรับอัปโหลดไฟล์ Markdown (`.md`) แล้วแปลงเป็น PDF ในเบราว์เซอร์ โดยใช้ฟอนต์ Noto Sans Thai ผ่าน Google Fonts
+เว็บ static สำหรับอัปโหลดไฟล์ Markdown (`.md`) แล้วแปลงเป็น PDF ในเบราว์เซอร์ โดยใช้และฝังฟอนต์ Noto Sans Thai จากไฟล์ในโปรเจกต์
 
 ## ความสามารถ
 
@@ -12,6 +12,9 @@
 - ลงสี syntax highlighting ให้ code block ตามภาษาที่ระบุ เช่น ` ```js `, ` ```python `, ` ```html `
 - เลือกความละเอียดตอน export PDF
 - PDF export เป็น text layer คัดลอกข้อความได้ และเก็บ hyperlink จาก Markdown
+- รองรับสมการ LaTeX ด้วย KaTeX ใน preview และเก็บ source formula ใน export
+- เพิ่ม PDF bookmark/outlines สำหรับ H1, H2, table และ code block
+- ฝังฟอนต์ `NotoSansThai` และ `NotoSansMono` ใน PDF จาก `resource/font/`
 - DOCX ใช้และฝังฟอนต์ `TH SarabunPSK` จาก `resource/font/`
 - แปลงทั้งหมดในเบราว์เซอร์ ไฟล์ Markdown ไม่ถูกอัปโหลดไปเซิร์ฟเวอร์
 
@@ -41,5 +44,5 @@ gh repo create MD2PDF --public --source=. --push
 
 ## หมายเหตุ
 
-- PDF ใช้การ render จากหน้าเว็บ จึงรองรับภาษาไทยด้วยฟอนต์ Noto
+- PDF ใช้ text renderer และฝังฟอนต์ Noto local จึงคัดลอกข้อความ/เปิดลิงก์/ใช้ bookmarks ได้
 - รูปภาพจาก URL ภายนอกต้องอนุญาต CORS จึงจะติดไปกับ PDF ได้ครบ
