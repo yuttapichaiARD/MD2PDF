@@ -59,6 +59,7 @@ const typographyDefaults = {
 };
 
 const pdfMetadataSource = "yuttapichaiARD-MD2PDF";
+const repositoryUrl = "https://github.com/yuttapichaiARD/MD2PDF";
 const docxFontFamily = "Noto Sans Thai";
 const docxPreviewFontFamily = "Noto Sans Thai Local";
 const docxEmbeddedFonts = [
@@ -136,10 +137,13 @@ const elements = {
   pageLabel: document.getElementById("pageLabel"),
   exportHost: document.getElementById("exportHost"),
   printStyle: document.getElementById("printStyle"),
+  buildChip: document.getElementById("buildChip"),
+  buildVersion: document.getElementById("buildVersion"),
   typographyInputs: [...document.querySelectorAll("[data-style-var]")],
 };
 
 function init() {
+  applyBuildStamp();
   elements.markdownInput.value = sampleMarkdown;
   syncPaperInputsFromPreset();
   applyMarginPreset();
@@ -227,6 +231,37 @@ function wireEvents() {
   elements.docxTab.addEventListener("click", () => setOutputMode("docx"));
   elements.downloadPdf.addEventListener("click", downloadCurrentOutput);
   elements.printPdf.addEventListener("click", printPdf);
+}
+
+// ป้าย build อ่านค่าจาก meta ที่ workflow ประทับตอน deploy
+// ถ้าเปิดจากเครื่องตัวเองจะยังเป็น "dev" แล้วแสดงเป็น local
+function applyBuildStamp() {
+  if (!elements.buildChip || !elements.buildVersion) {
+    return;
+  }
+
+  const version = readMetaContent("build-version");
+  const buildDate = readMetaContent("build-date");
+  const isDeployed = /^[0-9a-f]{7,40}$/i.test(version);
+
+  elements.buildVersion.textContent = isDeployed ? version : "local";
+  elements.buildChip.classList.toggle("is-local", !isDeployed);
+
+  if (isDeployed) {
+    elements.buildChip.href = `${repositoryUrl}/commit/${version}`;
+    elements.buildChip.title = buildDate
+      ? `เวอร์ชันที่ deploy เมื่อ ${buildDate} — คลิกเพื่อดูการเปลี่ยนแปลง`
+      : "คลิกเพื่อดูการเปลี่ยนแปลงของเวอร์ชันนี้";
+    return;
+  }
+
+  elements.buildChip.href = repositoryUrl;
+  elements.buildChip.title = "กำลังเปิดไฟล์จากเครื่อง ไม่ใช่เวอร์ชันที่ deploy";
+}
+
+function readMetaContent(name) {
+  const meta = document.querySelector(`meta[name="${name}"]`);
+  return meta ? String(meta.getAttribute("content") || "").trim() : "";
 }
 
 function setOutputMode(mode) {

@@ -7,6 +7,9 @@
       name="description"
       content="แปลงไฟล์ Markdown เป็น PDF โดย AMPAS R&D"
     />
+    <!-- workflow sync-gh-pages.yml เขียนค่าสองบรรทัดนี้ทับตอน deploy -->
+    <meta name="build-version" content="dev" />
+    <meta name="build-date" content="" />
     <title>MD to PDF - AMPAS R&D</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -39,7 +42,21 @@
         <p class="eyebrow">Markdown PDF</p>
         <h1>MD to PDF</h1>
       </div>
-      <span class="font-badge">"Welcome"</span>
+      <div class="topbar-meta">
+        <span class="font-badge">
+          <i class="live-dot" aria-hidden="true"></i>
+          แปลงในเครื่อง ไฟล์ไม่ถูกอัปโหลด
+        </span>
+        <a
+          class="build-chip"
+          id="buildChip"
+          href="https://github.com/yuttapichaiARD/MD2PDF"
+          target="_blank"
+          rel="noreferrer"
+        >
+          build <span id="buildVersion">dev</span>
+        </a>
+      </div>
     </header>
 
     <main class="app-shell">

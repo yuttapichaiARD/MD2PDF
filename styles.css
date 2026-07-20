@@ -141,14 +141,81 @@ textarea {
   text-transform: uppercase;
 }
 
+.topbar-meta {
+  align-items: flex-end;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
 .font-badge {
+  align-items: center;
   border: 1px solid var(--line);
   border-radius: 999px;
   color: var(--accent-strong);
+  display: inline-flex;
   font-size: 13px;
   font-weight: 700;
-  padding: 7px 12px;
+  gap: 8px;
+  padding: 7px 13px;
   white-space: nowrap;
+}
+
+.live-dot {
+  background: var(--accent);
+  border-radius: 50%;
+  flex: none;
+  height: 7px;
+  position: relative;
+  width: 7px;
+}
+
+.live-dot::after {
+  animation: live-pulse 2.6s ease-out infinite;
+  border: 1px solid var(--accent);
+  border-radius: 50%;
+  content: "";
+  inset: -3px;
+  position: absolute;
+}
+
+@keyframes live-pulse {
+  0% {
+    opacity: 0.65;
+    transform: scale(0.55);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.6);
+  }
+}
+
+.build-chip {
+  color: var(--muted);
+  font-family: "Noto Sans Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  opacity: 0.7;
+  padding-right: 2px;
+  text-decoration: none;
+  transition: color 0.18s ease, opacity 0.18s ease;
+}
+
+.build-chip:hover,
+.build-chip:focus-visible {
+  color: var(--accent-strong);
+  opacity: 1;
+}
+
+.build-chip.is-local {
+  color: var(--warm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-dot::after {
+    animation: none;
+    opacity: 0;
+  }
 }
 
 .app-shell {
@@ -613,6 +680,10 @@ body.docx-mode .preview-page {
   .topbar {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .topbar-meta {
+    align-items: flex-start;
   }
 
   .field-grid,
