@@ -722,17 +722,18 @@ function drawPdfParagraph(context, runs, style, options = {}) {
     line.forEach((run) => {
       setPdfRunFont(pdf, run, fontSize);
       const baselineY = context.cursorY + lineHeightMm * 0.72;
-      pdf.setTextColor(run.color || "#191817");
-      pdf.text(run.text, cursorX, baselineY);
       const runWidth = pdf.getTextWidth(run.text);
       if (run.href) {
         pdf.setTextColor("#145c4d");
-        pdf.text(run.text, cursorX, baselineY);
+        drawPdfRunText(pdf, run, cursorX, baselineY, fontSize);
         pdf.link(cursorX, context.cursorY, runWidth, lineHeightMm, { url: run.href });
       } else if (run.internalHref) {
         pdf.setTextColor("#145c4d");
-        pdf.text(run.text, cursorX, baselineY);
+        drawPdfRunText(pdf, run, cursorX, baselineY, fontSize);
         queuePdfInternalLink(context, run.internalHref, cursorX, context.cursorY, runWidth, lineHeightMm);
+      } else {
+        pdf.setTextColor(run.color || "#191817");
+        drawPdfRunText(pdf, run, cursorX, baselineY, fontSize);
       }
       cursorX += runWidth;
     });
@@ -963,6 +964,67 @@ function setPdfRunFont(pdf, run, fallbackFontSize) {
   pdf.setFontSize(run.fontSize || fallbackFontSize);
 }
 
+function drawPdfRunText(pdf, run, x, baselineY, fallbackFontSize) {
+  const text = String(run.text || "");
+  if (!hasThaiCombiningMarks(text)) {
+    pdf.text(text, x, baselineY);
+    return;
+  }
+
+  setPdfRunFont(pdf, run, fallbackFontSize);
+  const fontSize = run.fontSize || fallbackFontSize;
+  const emMm = pointToMm(fontSize);
+  let cursorX = x;
+  let lastBaseX = x;
+  let lastBaseWidth = 0;
+  let hasUpperInCluster = false;
+
+  [...text].forEach((char) => {
+    if (isThaiCombiningMark(char)) {
+      const markWidth = pdf.getTextWidth(char);
+      const centeredX = lastBaseX + Math.max(0, (lastBaseWidth - markWidth) / 2);
+      const isTone = /[\u0E48-\u0E4B]/u.test(char);
+      const yOffset = getThaiMarkYOffset(char, isTone && hasUpperInCluster, emMm);
+      pdf.text(char, centeredX, baselineY + yOffset);
+      if (isThaiUpperMark(char)) {
+        hasUpperInCluster = true;
+      }
+      return;
+    }
+
+    pdf.text(char, cursorX, baselineY);
+    lastBaseX = cursorX;
+    lastBaseWidth = pdf.getTextWidth(char);
+    cursorX += lastBaseWidth;
+    hasUpperInCluster = false;
+  });
+}
+
+function hasThaiCombiningMarks(text) {
+  return /[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E]/u.test(text);
+}
+
+function isThaiCombiningMark(char) {
+  return /[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E]/u.test(char);
+}
+
+function isThaiUpperMark(char) {
+  return /[\u0E31\u0E34-\u0E37\u0E47-\u0E4E]/u.test(char);
+}
+
+function getThaiMarkYOffset(char, stackedTone, emMm) {
+  if (/[\u0E38-\u0E3A]/u.test(char)) {
+    return emMm * 0.16;
+  }
+  if (/[\u0E48-\u0E4B]/u.test(char)) {
+    return emMm * (stackedTone ? -0.38 : -0.24);
+  }
+  if (/[\u0E4C-\u0E4E]/u.test(char)) {
+    return emMm * -0.28;
+  }
+  return emMm * -0.16;
+}
+
 function drawPdfList(context, listElement, isOrdered, level = 0) {
   [...listElement.children].forEach((item, index) => {
     if (item.tagName.toLowerCase() !== "li") return;
@@ -1031,7 +1093,7 @@ function drawPdfCodeBlock(context, preElement) {
     const runs = normalizePdfRuns([{ text: line || " ", fontFamily: pdfMonoFontFamily }], style);
     runs.forEach((run) => {
       setPdfRunFont(pdf, run, style.fontSize);
-      pdf.text(run.text, cursorX, baselineY);
+      drawPdfRunText(pdf, run, cursorX, baselineY, style.fontSize);
       cursorX += pdf.getTextWidth(run.text);
     });
   });
@@ -1090,7 +1152,7 @@ function drawPdfTable(context, tableElement) {
         const baselineY = context.cursorY + cellPadding + lineHeightMm * (lineIndex + 0.72);
         line.forEach((run) => {
           setPdfRunFont(pdf, run, style.fontSize);
-          pdf.text(run.text, cursorX, baselineY);
+          drawPdfRunText(pdf, run, cursorX, baselineY, style.fontSize);
           cursorX += pdf.getTextWidth(run.text);
         });
       });
