@@ -46,3 +46,4 @@ gh repo create MD2PDF --public --source=. --push
 
 - PDF ใช้ text renderer และฝังฟอนต์ Noto local จึงคัดลอกข้อความ/เปิดลิงก์/ใช้ bookmarks ได้
 - รูปภาพจาก URL ภายนอกต้องอนุญาต CORS จึงจะติดไปกับ PDF ได้ครบ
+- LaTeX font size controls are available separately for `$...$` and `$$...$$`.

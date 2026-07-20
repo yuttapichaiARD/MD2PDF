@@ -26,6 +26,8 @@
   --font-table: 14px;
   --font-inline-code: 15px;
   --font-code-block: 14px;
+  --font-latex-inline: 16px;
+  --font-latex-block: 20px;
   --font-line-height: 1.72;
   color-scheme: light;
 }
@@ -526,11 +528,12 @@ body.docx-mode .preview-page {
 }
 
 .markdown-body .math-inline {
-  font-size: 1em;
+  font-size: var(--font-latex-inline);
 }
 
 .markdown-body .math-block {
   display: block;
+  font-size: var(--font-latex-block);
   margin: 1.1em 0;
   overflow-x: auto;
   text-align: center;

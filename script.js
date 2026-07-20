@@ -53,6 +53,8 @@ const typographyDefaults = {
   tableFont: "14",
   inlineCodeFont: "15",
   codeBlockFont: "14",
+  latexInlineFont: "16",
+  latexBlockFont: "20",
   lineHeight: "1.72",
 };
 
@@ -676,6 +678,8 @@ function getPdfTextStyle(kind) {
     table: ["tableFont", 14],
     inlineCode: ["inlineCodeFont", 15],
     codeBlock: ["codeBlockFont", 14],
+    latexInline: ["latexInlineFont", 16],
+    latexBlock: ["latexBlockFont", 20],
   };
   const [inputId, fallback] = styleMap[kind] || styleMap.body;
   const input = document.getElementById(inputId);
@@ -954,7 +958,7 @@ function drawPdfMathBlock(context, element) {
   const tex = element.getAttribute("data-tex") || element.textContent.trim();
   const displayMode = element.getAttribute("data-display") === "true";
   const text = displayMode ? `$$${tex}$$` : `$${tex}$`;
-  const style = getPdfTextStyle(displayMode ? "body" : "inlineCode");
+  const style = getPdfTextStyle(displayMode ? "latexBlock" : "latexInline");
   drawPdfParagraph(context, [{ text, fontFamily: pdfMonoFontFamily }], style, {
     left: displayMode ? context.left + 6 : context.left,
     width: displayMode ? context.usableWidth - 12 : context.usableWidth,
@@ -1084,7 +1088,7 @@ function inlineNodeToPdfRuns(node, inherited) {
         ...inherited,
         text: `$${tex}$`,
         fontFamily: pdfMonoFontFamily,
-        fontSize: getPdfTextStyle("inlineCode").fontSize,
+        fontSize: getPdfTextStyle("latexInline").fontSize,
       },
     ];
   }
