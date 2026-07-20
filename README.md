@@ -16,7 +16,7 @@
 - แบ่งหน้าอัตโนมัติ: ตารางทวนหัวตารางเมื่อขึ้นหน้าใหม่, code block ยาวแบ่งข้ามหน้า, หัวข้อไม่ตกท้ายหน้า, กันบรรทัดกำพร้า (widow/orphan)
 - รูปภาพและสมการ LaTeX แบบ `$$...$$` ฝังเป็นภาพความละเอียดสูงในโหมดข้อความ
 - PDF export เป็น text layer คัดลอกข้อความได้ และเก็บ hyperlink จาก Markdown
-- รองรับสมการ LaTeX ด้วย KaTeX ใน preview และเก็บ source formula ใน export
+- รองรับสมการ LaTeX ด้วย KaTeX สมการ `$$...$$` ถูกฝังลง PDF เป็นภาพความละเอียดสูงที่หน้าตาตรงกับ preview ส่วน `$...$` ในบรรทัดยังเก็บเป็น source formula
 - เพิ่ม PDF bookmark/outlines สำหรับ H1, H2, table และ code block
 - ฝังฟอนต์ `NotoSansThai`, `NotoSans`, และ `NotoSansMono` ใน PDF จาก `resource/font/`
 - DOCX ใช้และฝังฟอนต์ `Noto Sans Thai` จาก `resource/font/`

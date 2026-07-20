@@ -1315,21 +1315,18 @@ async function drawPdfMathBlock(context, element) {
   const tex = element.getAttribute("data-tex") || element.textContent.trim();
   const displayMode = element.getAttribute("data-display") === "true";
 
-  if (displayMode && window.html2canvas && element.isConnected) {
+  if (displayMode && element.isConnected && element.querySelector(".katex")) {
     try {
       const scale = Math.max(2, readNumber(elements.renderScale, 2, 1, 3));
-      const canvas = await window.html2canvas(element, {
-        backgroundColor: "#ffffff",
-        scale,
-      });
-      const rect = element.getBoundingClientRect();
+      const shot = await renderMathElementToCanvas(element, scale);
       const pxToMm = 25.4 / 96;
-      let widthMm = Math.min(rect.width * pxToMm, context.usableWidth);
-      const heightMm = rect.height * pxToMm * (widthMm / (rect.width * pxToMm));
+      const ratio = shot.heightPx / shot.widthPx;
+      const widthMm = Math.min(shot.widthPx * pxToMm, context.usableWidth);
+      const heightMm = widthMm * ratio;
 
       ensurePdfSpace(context, heightMm + 2);
       const offsetX = context.left + Math.max(0, (context.usableWidth - widthMm) / 2);
-      context.pdf.addImage(canvas.toDataURL("image/png"), "PNG", offsetX, context.cursorY, widthMm, heightMm);
+      context.pdf.addImage(shot.dataUrl, "PNG", offsetX, context.cursorY, widthMm, heightMm);
       context.cursorY += heightMm + 4;
       return;
     } catch (error) {
@@ -1398,6 +1395,106 @@ function drawPdfCodeBlock(context, preElement) {
     }
   }
   context.cursorY += 4;
+}
+
+// html2canvas เรนเดอร์วงเล็บสูงของ KaTeX (\begin{bmatrix}) ผิด เพราะวาด vlist
+// ที่ซ้อนชิ้นวงเล็บด้วย position ไม่ถูก จึงวาดผ่าน SVG foreignObject ให้เบราว์เซอร์
+// จัดหน้าเองแทน แต่ต้องฝัง CSS + ฟอนต์ KaTeX เป็น data URI เพราะ SVG ที่โหลดใน
+// <img> เข้าถึงไฟล์ภายนอกไม่ได้
+async function renderMathElementToCanvas(element, scale) {
+  const css = await ensureKatexInlineCss();
+  const computed = window.getComputedStyle(element);
+  const rect = element.getBoundingClientRect();
+  const widthPx = Math.ceil(Math.max(rect.width, element.scrollWidth));
+  const heightPx = Math.ceil(Math.max(rect.height, element.scrollHeight));
+
+  if (!widthPx || !heightPx) {
+    throw new Error("สูตรไม่มีขนาดให้วาด");
+  }
+
+  const clone = element.cloneNode(true);
+  clone.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
+  clone.style.margin = "0";
+  clone.style.overflow = "visible";
+
+  const wrapperStyle = [
+    `width:${widthPx}px`,
+    "background:#ffffff",
+    `font-size:${computed.fontSize}`,
+    `color:${computed.color}`,
+    "text-align:center",
+  ].join(";");
+
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${widthPx}" height="${heightPx}" viewBox="0 0 ${widthPx} ${heightPx}">` +
+    `<foreignObject width="100%" height="100%">` +
+    `<div xmlns="http://www.w3.org/1999/xhtml" style="${wrapperStyle}">` +
+    `<style>${css}</style>${new XMLSerializer().serializeToString(clone)}` +
+    `</div></foreignObject></svg>`;
+
+  const image = await loadSvgImage(svg);
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(widthPx * scale));
+  canvas.height = Math.max(1, Math.round(heightPx * scale));
+  const canvasContext = canvas.getContext("2d");
+  canvasContext.fillStyle = "#ffffff";
+  canvasContext.fillRect(0, 0, canvas.width, canvas.height);
+  canvasContext.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+  return { dataUrl: canvas.toDataURL("image/png"), widthPx, heightPx };
+}
+
+function loadSvgImage(svg) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.addEventListener("load", () => resolve(image));
+    image.addEventListener("error", () => reject(new Error("โหลด SVG ของสูตรไม่สำเร็จ")));
+    image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  });
+}
+
+let katexInlineCssPromise = null;
+
+function ensureKatexInlineCss() {
+  if (!katexInlineCssPromise) {
+    katexInlineCssPromise = buildKatexInlineCss().catch((error) => {
+      katexInlineCssPromise = null;
+      throw error;
+    });
+  }
+  return katexInlineCssPromise;
+}
+
+async function buildKatexInlineCss() {
+  const cssUrl = [...document.querySelectorAll('link[rel="stylesheet"]')]
+    .map((link) => link.href)
+    .find((href) => /katex[^/]*\.css/i.test(href));
+  if (!cssUrl) {
+    throw new Error("ไม่พบ stylesheet ของ KaTeX");
+  }
+
+  const response = await fetch(cssUrl);
+  if (!response.ok) {
+    throw new Error(`โหลด CSS ของ KaTeX ไม่สำเร็จ: ${cssUrl}`);
+  }
+  const css = await response.text();
+
+  const fontPaths = [...new Set([...css.matchAll(/url\(([^)]+\.woff2)\)/g)].map((match) => match[1].replace(/["']/g, "")))];
+  const embedded = new Map();
+  await Promise.all(
+    fontPaths.map(async (path) => {
+      const bytes = await fetchFontBytes(new URL(path, cssUrl).href);
+      embedded.set(path, `data:font/woff2;base64,${bytesToBase64(bytes)}`);
+    }),
+  );
+
+  let inlined = css;
+  embedded.forEach((dataUri, path) => {
+    inlined = inlined.split(`url(${path})`).join(`url(${dataUri})`);
+  });
+
+  // ตัด src ที่ยังชี้ไฟล์ woff/ttf ภายนอกทิ้ง ไม่งั้นเบราว์เซอร์จะพยายามโหลดแล้วล้ม
+  return inlined.replace(/,\s*url\([^)]+\.(?:woff|ttf)\)\s*format\((["'])(?:woff|truetype)\1\)/g, "");
 }
 
 function getCodeLanguage(preElement) {
