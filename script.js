@@ -68,6 +68,10 @@ const docxEmbeddedFonts = [
   { style: "boldItalic", fileName: "THSarabun BoldItalic.ttf", embedTag: "embedBoldItalic" },
 ];
 const pdfEmbeddedFonts = [
+  { family: "NotoSans", style: "normal", fileName: "NotoSans-Regular.ttf" },
+  { family: "NotoSans", style: "bold", fileName: "NotoSans-Bold.ttf" },
+  { family: "NotoSans", style: "italic", fileName: "NotoSans-Regular.ttf" },
+  { family: "NotoSans", style: "bolditalic", fileName: "NotoSans-Bold.ttf" },
   { family: "NotoSansThai", style: "normal", fileName: "NotoSansThai-Regular.ttf" },
   { family: "NotoSansThai", style: "bold", fileName: "NotoSansThai-Bold.ttf" },
   { family: "NotoSansThai", style: "italic", fileName: "NotoSansThai-Regular.ttf" },
@@ -76,6 +80,7 @@ const pdfEmbeddedFonts = [
   { family: "NotoSansMono", style: "bold", fileName: "NotoSansMono-Bold.ttf" },
 ];
 const pdfFontFamily = "NotoSansThai";
+const pdfFallbackFontFamily = "NotoSans";
 const pdfMonoFontFamily = "NotoSansMono";
 
 const state = {
@@ -836,7 +841,46 @@ function normalizePdfRuns(runs, style) {
 
 function splitPdfTextRun(run) {
   const parts = String(run.text || "").match(/(\s+|[^\s]+)/g) || [];
-  return parts.map((text) => ({ ...run, text }));
+  return parts.flatMap((text) => splitPdfRunByFont({ ...run, text }));
+}
+
+function splitPdfRunByFont(run) {
+  if (run.fontFamily && run.fontFamily !== pdfMonoFontFamily) {
+    return [run];
+  }
+
+  const chunks = [];
+  let current = "";
+  let currentFamily = "";
+  [...String(run.text || "")].forEach((char) => {
+    const nextFamily =
+      run.fontFamily === pdfMonoFontFamily ? getPdfMonoFallbackFontForChar(char) : getPdfFallbackFontForChar(char);
+    if (current && nextFamily !== currentFamily) {
+      chunks.push({ ...run, text: current, fontFamily: currentFamily });
+      current = "";
+    }
+    current += char;
+    currentFamily = nextFamily;
+  });
+
+  if (current) {
+    chunks.push({ ...run, text: current, fontFamily: currentFamily });
+  }
+  return chunks;
+}
+
+function getPdfFallbackFontForChar(char) {
+  if (/[\u0E00-\u0E7F]/u.test(char)) {
+    return pdfFontFamily;
+  }
+  return pdfFallbackFontFamily;
+}
+
+function getPdfMonoFallbackFontForChar(char) {
+  if (/[\u0E00-\u0E7F]/u.test(char)) {
+    return pdfFontFamily;
+  }
+  return pdfMonoFontFamily;
 }
 
 function wrapPdfRuns(pdf, runs, maxWidth, fontSize) {
@@ -981,10 +1025,15 @@ function drawPdfCodeBlock(context, preElement) {
   pdf.setFillColor("#202321");
   pdf.roundedRect(context.left, context.cursorY, context.usableWidth, blockHeight, 1.8, 1.8, "F");
   pdf.setTextColor("#f7f7f2");
-  pdf.setFont(pdfMonoFontFamily, "normal");
-  pdf.setFontSize(style.fontSize);
   lines.forEach((line, index) => {
-    pdf.text(line || " ", context.left + 3, context.cursorY + 4 + lineHeightMm * (index + 0.72));
+    let cursorX = context.left + 3;
+    const baselineY = context.cursorY + 4 + lineHeightMm * (index + 0.72);
+    const runs = normalizePdfRuns([{ text: line || " ", fontFamily: pdfMonoFontFamily }], style);
+    runs.forEach((run) => {
+      setPdfRunFont(pdf, run, style.fontSize);
+      pdf.text(run.text, cursorX, baselineY);
+      cursorX += pdf.getTextWidth(run.text);
+    });
   });
   pdf.setTextColor("#191817");
   context.cursorY += blockHeight + 4;
@@ -1018,11 +1067,10 @@ function drawPdfTable(context, tableElement) {
   rows.forEach((row) => {
     const wrappedCells = Array.from({ length: columnCount }, (_, columnIndex) => {
       const cell = row[columnIndex] || { text: "", header: false };
-      pdf.setFont(pdfFontFamily, cell.header ? "bold" : "normal");
-      pdf.setFontSize(style.fontSize);
+      const runs = normalizePdfRuns([{ text: cell.text || " ", bold: cell.header }], style);
       return {
         ...cell,
-        lines: pdf.splitTextToSize(cell.text || " ", columnWidth - cellPadding * 2),
+        lines: wrapPdfRuns(pdf, runs, columnWidth - cellPadding * 2, style.fontSize),
       };
     });
     const rowHeight = Math.max(...wrappedCells.map((cell) => cell.lines.length)) * lineHeightMm + cellPadding * 2;
@@ -1036,11 +1084,15 @@ function drawPdfTable(context, tableElement) {
       }
       pdf.setDrawColor("#d8dedb");
       pdf.rect(x, context.cursorY, columnWidth, rowHeight);
-      pdf.setFont(pdfFontFamily, cell.header ? "bold" : "normal");
-      pdf.setFontSize(style.fontSize);
       pdf.setTextColor("#191817");
       cell.lines.forEach((line, lineIndex) => {
-        pdf.text(line, x + cellPadding, context.cursorY + cellPadding + lineHeightMm * (lineIndex + 0.72));
+        let cursorX = x + cellPadding;
+        const baselineY = context.cursorY + cellPadding + lineHeightMm * (lineIndex + 0.72);
+        line.forEach((run) => {
+          setPdfRunFont(pdf, run, style.fontSize);
+          pdf.text(run.text, cursorX, baselineY);
+          cursorX += pdf.getTextWidth(run.text);
+        });
       });
     });
     context.cursorY += rowHeight;

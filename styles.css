@@ -33,6 +33,20 @@
 }
 
 @font-face {
+  font-family: "Noto Sans Local";
+  font-style: normal;
+  font-weight: 400;
+  src: url("resource/font/NotoSans-Regular.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Noto Sans Local";
+  font-style: normal;
+  font-weight: 700;
+  src: url("resource/font/NotoSans-Bold.ttf") format("truetype");
+}
+
+@font-face {
   font-family: "Noto Sans Thai Local";
   font-style: normal;
   font-weight: 400;
@@ -101,7 +115,7 @@ body {
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: "Noto Sans Thai Local", "Noto Sans Thai", "Noto Sans", system-ui, sans-serif;
+  font-family: "Noto Sans Thai Local", "Noto Sans Local", "Noto Sans Thai", "Noto Sans", system-ui, sans-serif;
   letter-spacing: 0;
 }
 
@@ -408,7 +422,7 @@ textarea {
   background: #ffffff;
   box-shadow: var(--shadow);
   color: #191817;
-  font-family: "Noto Sans Thai Local", "Noto Sans Thai", "Noto Sans", system-ui, sans-serif;
+  font-family: "Noto Sans Thai Local", "Noto Sans Local", "Noto Sans Thai", "Noto Sans", system-ui, sans-serif;
   margin: 0 auto;
   max-width: 100%;
   min-height: var(--page-height);
