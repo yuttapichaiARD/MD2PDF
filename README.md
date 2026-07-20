@@ -31,9 +31,19 @@
 5. ตรวจตัวอย่างเอกสาร
 6. กด `ดาวน์โหลด PDF` หรือ `ดาวน์โหลด DOCX`
 
+## ตรวจว่าเว็บเป็นเวอร์ชันล่าสุด
+
+มุมบนขวาของหน้าเว็บมีป้าย `build xxxxxxx` แสดงเลข commit ที่ deploy อยู่จริง เทียบกับ commit ล่าสุดบน `main` ได้เลย คลิกที่ป้ายเพื่อดูว่า commit นั้นแก้อะไรบ้าง และชี้ค้างไว้จะเห็นวันเวลาที่ deploy
+
+ถ้าเปิดไฟล์จากเครื่องตัวเองป้ายจะขึ้นว่า `build local` เป็นสีส้ม แปลว่ายังไม่ใช่เวอร์ชันที่ deploy
+
 ## โฮสต์บน GitHub Pages
 
-โปรเจกต์นี้มี GitHub Actions workflow สำหรับ Pages อยู่แล้วที่ `.github/workflows/pages.yml`
+repo นี้ตั้ง `Settings > Pages` ให้เสิร์ฟจาก branch `gh-pages` ไม่ใช่จาก Actions artifact ดังนั้นการ push `main` เฉยๆ จะไม่อัปเดตเว็บ
+
+`.github/workflows/sync-gh-pages.yml` จัดการให้อัตโนมัติ: ทุกครั้งที่ push `main` มันจะประทับเลข commit ลง `index.html` แล้ว push ไป `gh-pages` ต่อ จากนั้นตัว build ในตัวของ Pages จะ deploy เอง รวมแล้วราว 1 นาที **จึง push `main` อย่างเดียวพอ**
+
+ถ้าอยากสั่ง deploy โดยไม่แก้โค้ด กด `Run workflow` ที่ workflow นี้ในหน้า Actions ได้
 
 ถ้าสร้าง repo ใหม่:
 
@@ -44,7 +54,7 @@ git commit -m "Add markdown to PDF site"
 gh repo create MD2PDF --public --source=. --push
 ```
 
-จากนั้นไปที่ repository บน GitHub แล้วเปิด `Settings > Pages` เลือก `GitHub Actions` เป็นแหล่ง deploy
+จากนั้นเปิด `Settings > Pages` แล้วเลือก branch `gh-pages` เป็นแหล่ง deploy
 
 ## หมายเหตุ
 
