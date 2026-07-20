@@ -540,9 +540,8 @@ async function downloadPdf() {
       orientation,
     });
 
-    await registerPdfFonts(pdf);
     pdf.setProperties(getPdfMetadata());
-    renderTextPdf(pdf, page);
+    await renderPreviewPdf(pdf, page, orientation);
     pdf.save(getPdfName());
     setStatus("ดาวน์โหลดแล้ว");
   } catch (error) {
@@ -573,6 +572,38 @@ function bytesToBase64(bytes) {
     binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
   }
   return btoa(binary);
+}
+
+async function renderPreviewPdf(pdf, page, orientation) {
+  if (!window.html2canvas) {
+    renderTextPdf(pdf, page);
+    return;
+  }
+
+  const clone = elements.previewPage.cloneNode(true);
+  clone.removeAttribute("id");
+  elements.exportHost.replaceChildren(clone);
+
+  try {
+    await waitForFonts();
+    const scale = readNumber(elements.renderScale, 2, 1, 3);
+    const canvas = await window.html2canvas(clone, {
+      allowTaint: true,
+      backgroundColor: "#ffffff",
+      scale,
+      scrollX: 0,
+      scrollY: 0,
+      useCORS: true,
+      windowHeight: clone.scrollHeight,
+      windowWidth: clone.scrollWidth,
+    });
+
+    const slices = addCanvasPagesToPdf(pdf, canvas, page, orientation);
+    addPreviewPdfLinks(pdf, clone, canvas, page, slices);
+    addPreviewPdfBookmarks(pdf, clone, canvas, page, slices);
+  } finally {
+    elements.exportHost.replaceChildren();
+  }
 }
 
 function renderTextPdf(pdf, page) {
@@ -965,64 +996,8 @@ function setPdfRunFont(pdf, run, fallbackFontSize) {
 }
 
 function drawPdfRunText(pdf, run, x, baselineY, fallbackFontSize) {
-  const text = String(run.text || "");
-  if (!hasThaiCombiningMarks(text)) {
-    pdf.text(text, x, baselineY);
-    return;
-  }
-
   setPdfRunFont(pdf, run, fallbackFontSize);
-  const fontSize = run.fontSize || fallbackFontSize;
-  const emMm = pointToMm(fontSize);
-  let cursorX = x;
-  let lastBaseX = x;
-  let lastBaseWidth = 0;
-  let hasUpperInCluster = false;
-
-  [...text].forEach((char) => {
-    if (isThaiCombiningMark(char)) {
-      const markWidth = pdf.getTextWidth(char);
-      const centeredX = lastBaseX + Math.max(0, (lastBaseWidth - markWidth) / 2);
-      const isTone = /[\u0E48-\u0E4B]/u.test(char);
-      const yOffset = getThaiMarkYOffset(char, isTone && hasUpperInCluster, emMm);
-      pdf.text(char, centeredX, baselineY + yOffset);
-      if (isThaiUpperMark(char)) {
-        hasUpperInCluster = true;
-      }
-      return;
-    }
-
-    pdf.text(char, cursorX, baselineY);
-    lastBaseX = cursorX;
-    lastBaseWidth = pdf.getTextWidth(char);
-    cursorX += lastBaseWidth;
-    hasUpperInCluster = false;
-  });
-}
-
-function hasThaiCombiningMarks(text) {
-  return /[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E]/u.test(text);
-}
-
-function isThaiCombiningMark(char) {
-  return /[\u0E31\u0E34-\u0E3A\u0E47-\u0E4E]/u.test(char);
-}
-
-function isThaiUpperMark(char) {
-  return /[\u0E31\u0E34-\u0E37\u0E47-\u0E4E]/u.test(char);
-}
-
-function getThaiMarkYOffset(char, stackedTone, emMm) {
-  if (/[\u0E38-\u0E3A]/u.test(char)) {
-    return emMm * 0.16;
-  }
-  if (/[\u0E48-\u0E4B]/u.test(char)) {
-    return emMm * (stackedTone ? -0.38 : -0.24);
-  }
-  if (/[\u0E4C-\u0E4E]/u.test(char)) {
-    return emMm * -0.28;
-  }
-  return emMm * -0.16;
+  pdf.text(String(run.text || ""), x, baselineY);
 }
 
 function drawPdfList(context, listElement, isOrdered, level = 0) {
@@ -1250,14 +1225,14 @@ function getJsPdfConstructor() {
 function addCanvasPagesToPdf(pdf, canvas, page, orientation) {
   const pageWidthPx = canvas.width;
   const pxPerMm = pageWidthPx / page.width;
-  const usableHeightMm = Math.max(page.height - page.marginTop - page.marginBottom, 10);
-  const usableHeightPx = Math.floor(usableHeightMm * pxPerMm);
+  const pageHeightPx = Math.floor(page.height * pxPerMm);
   const sourceContext = canvas.getContext("2d", { willReadFrequently: true });
   let renderedHeightPx = 0;
   let pageIndex = 0;
+  const slices = [];
 
   while (renderedHeightPx < canvas.height) {
-    let sliceHeightPx = Math.min(usableHeightPx, canvas.height - renderedHeightPx);
+    let sliceHeightPx = Math.min(pageHeightPx, canvas.height - renderedHeightPx);
     if (renderedHeightPx + sliceHeightPx < canvas.height) {
       sliceHeightPx = findSafeSliceHeight(sourceContext, pageWidthPx, renderedHeightPx, sliceHeightPx);
     }
@@ -1290,14 +1265,138 @@ function addCanvasPagesToPdf(pdf, canvas, page, orientation) {
       pageCanvas.toDataURL("image/jpeg", 0.98),
       "JPEG",
       0,
-      page.marginTop,
+      0,
       page.width,
       imageHeightMm,
     );
 
+    slices.push({
+      pageNumber: pageIndex + 1,
+      topPx: renderedHeightPx,
+      heightPx: sliceHeightPx,
+    });
     renderedHeightPx += sliceHeightPx;
     pageIndex += 1;
   }
+
+  return slices;
+}
+
+function addPreviewPdfLinks(pdf, root, canvas, page, slices) {
+  const rootRect = root.getBoundingClientRect();
+  const scale = canvas.width / rootRect.width;
+  const pxPerMm = canvas.width / page.width;
+  const anchors = collectPreviewAnchors(root, rootRect, scale, pxPerMm, page, slices);
+
+  root.querySelectorAll("a[href]").forEach((link) => {
+    const href = link.getAttribute("href") || "";
+    const rects = [...link.getClientRects()];
+    rects.forEach((rect) => {
+      const box = mapPreviewRectToPdf(rect, rootRect, scale, pxPerMm, page, slices);
+      if (!box || box.width <= 0 || box.height <= 0) {
+        return;
+      }
+
+      pdf.setPage(box.pageNumber);
+      if (isInternalHashLink(href)) {
+        const target = anchors.get(canonicalizeAnchorId(normalizeHashTarget(href)));
+        if (target) {
+          pdf.link(box.x, box.y, box.width, box.height, {
+            pageNumber: target.pageNumber,
+            top: target.y,
+          });
+        }
+        return;
+      }
+
+      const url = link.href;
+      if (url) {
+        pdf.link(box.x, box.y, box.width, box.height, { url });
+      }
+    });
+  });
+
+  pdf.setPage(pdf.internal.getNumberOfPages());
+}
+
+function addPreviewPdfBookmarks(pdf, root, canvas, page, slices) {
+  if (!pdf.outline || typeof pdf.outline.add !== "function") {
+    return;
+  }
+
+  const rootRect = root.getBoundingClientRect();
+  const scale = canvas.width / rootRect.width;
+  const pxPerMm = canvas.width / page.width;
+  const parentsByLevel = new Map();
+  let tableCount = 0;
+  let codeCount = 0;
+
+  root.querySelectorAll("h1, h2, table, pre").forEach((element) => {
+    const tagName = element.tagName.toLowerCase();
+    let title = "";
+    let level = 1;
+
+    if (tagName === "h1" || tagName === "h2") {
+      title = element.textContent.trim();
+      level = tagName === "h1" ? 1 : 2;
+    } else if (tagName === "table") {
+      tableCount += 1;
+      title = `Table ${tableCount}`;
+      level = 3;
+    } else if (tagName === "pre") {
+      codeCount += 1;
+      title = `Code ${codeCount}`;
+      level = 3;
+    }
+
+    const target = mapPreviewRectToPdf(element.getBoundingClientRect(), rootRect, scale, pxPerMm, page, slices);
+    if (!title || !target) {
+      return;
+    }
+
+    const parent = level > 1 ? parentsByLevel.get(level - 1) || null : null;
+    const outlineItem = pdf.outline.add(parent, title, {
+      pageNumber: target.pageNumber,
+      top: target.y,
+    });
+    parentsByLevel.set(level, outlineItem);
+    [...parentsByLevel.keys()].forEach((storedLevel) => {
+      if (storedLevel > level) {
+        parentsByLevel.delete(storedLevel);
+      }
+    });
+  });
+}
+
+function collectPreviewAnchors(root, rootRect, scale, pxPerMm, page, slices) {
+  const anchors = new Map();
+  root.querySelectorAll("[id]").forEach((element) => {
+    const id = canonicalizeAnchorId(element.id);
+    const target = mapPreviewRectToPdf(element.getBoundingClientRect(), rootRect, scale, pxPerMm, page, slices);
+    if (id && target) {
+      anchors.set(id, target);
+    }
+  });
+  return anchors;
+}
+
+function mapPreviewRectToPdf(rect, rootRect, scale, pxPerMm, page, slices) {
+  const xPx = (rect.left - rootRect.left) * scale;
+  const yPx = (rect.top - rootRect.top) * scale;
+  const widthPx = rect.width * scale;
+  const heightPx = rect.height * scale;
+  const slice = slices.find((candidate) => yPx >= candidate.topPx && yPx < candidate.topPx + candidate.heightPx);
+  if (!slice) {
+    return null;
+  }
+
+  return {
+    pageNumber: slice.pageNumber,
+    x: xPx / pxPerMm,
+    y: (yPx - slice.topPx) / pxPerMm,
+    width: widthPx / pxPerMm,
+    height: Math.min(heightPx / pxPerMm, page.height - (yPx - slice.topPx) / pxPerMm),
+  };
 }
 
 function findSafeSliceHeight(context, widthPx, topPx, sliceHeightPx) {
