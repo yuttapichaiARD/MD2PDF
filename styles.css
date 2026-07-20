@@ -47,6 +47,20 @@
 }
 
 @font-face {
+  font-family: "Noto Sans Local";
+  font-style: italic;
+  font-weight: 400;
+  src: url("resource/font/NotoSans-Italic.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Noto Sans Local";
+  font-style: italic;
+  font-weight: 700;
+  src: url("resource/font/NotoSans-BoldItalic.ttf") format("truetype");
+}
+
+@font-face {
   font-family: "Noto Sans Thai Local";
   font-style: normal;
   font-weight: 400;
@@ -72,34 +86,6 @@
   font-style: normal;
   font-weight: 700;
   src: url("resource/font/NotoSansMono-Bold.ttf") format("truetype");
-}
-
-@font-face {
-  font-family: "THSarabun";
-  font-style: normal;
-  font-weight: 400;
-  src: url("resource/font/THSarabun.ttf") format("truetype");
-}
-
-@font-face {
-  font-family: "THSarabun";
-  font-style: italic;
-  font-weight: 400;
-  src: url("resource/font/THSarabun Italic.ttf") format("truetype");
-}
-
-@font-face {
-  font-family: "THSarabun";
-  font-style: normal;
-  font-weight: 700;
-  src: url("resource/font/THSarabun Bold.ttf") format("truetype");
-}
-
-@font-face {
-  font-family: "THSarabun";
-  font-style: italic;
-  font-weight: 700;
-  src: url("resource/font/THSarabun BoldItalic.ttf") format("truetype");
 }
 
 * {
@@ -432,7 +418,7 @@ textarea {
 }
 
 body.docx-mode .preview-page {
-  font-family: "THSarabun", "Noto Sans Thai", "Noto Sans", system-ui, sans-serif;
+  font-family: "Noto Sans Thai Local", "Noto Sans Local", "Noto Sans Thai", "Noto Sans", system-ui, sans-serif;
 }
 
 .markdown-body {

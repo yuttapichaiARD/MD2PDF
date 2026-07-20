@@ -59,27 +59,27 @@ const typographyDefaults = {
 };
 
 const pdfMetadataSource = "yuttapichaiARD-MD2PDF";
-const docxFontFamily = "TH SarabunPSK";
-const docxPreviewFontFamily = "THSarabun";
+const docxFontFamily = "Noto Sans Thai";
+const docxPreviewFontFamily = "Noto Sans Thai Local";
 const docxEmbeddedFonts = [
-  { style: "regular", fileName: "THSarabun.ttf", embedTag: "embedRegular" },
-  { style: "bold", fileName: "THSarabun Bold.ttf", embedTag: "embedBold" },
-  { style: "italic", fileName: "THSarabun Italic.ttf", embedTag: "embedItalic" },
-  { style: "boldItalic", fileName: "THSarabun BoldItalic.ttf", embedTag: "embedBoldItalic" },
+  { style: "regular", fileName: "NotoSansThai-Regular.ttf", embedTag: "embedRegular" },
+  { style: "bold", fileName: "NotoSansThai-Bold.ttf", embedTag: "embedBold" },
+  { style: "italic", fileName: "NotoSansThai-Regular.ttf", embedTag: "embedItalic" },
+  { style: "boldItalic", fileName: "NotoSansThai-Bold.ttf", embedTag: "embedBoldItalic" },
 ];
 const pdfEmbeddedFonts = [
   { family: "NotoSans", style: "normal", fileName: "NotoSans-Regular.ttf" },
   { family: "NotoSans", style: "bold", fileName: "NotoSans-Bold.ttf" },
-  { family: "NotoSans", style: "italic", fileName: "NotoSans-Regular.ttf" },
-  { family: "NotoSans", style: "bolditalic", fileName: "NotoSans-Bold.ttf" },
-  { family: "THSarabunPSK", style: "normal", fileName: "THSarabun.ttf" },
-  { family: "THSarabunPSK", style: "bold", fileName: "THSarabun Bold.ttf" },
-  { family: "THSarabunPSK", style: "italic", fileName: "THSarabun Italic.ttf" },
-  { family: "THSarabunPSK", style: "bolditalic", fileName: "THSarabun BoldItalic.ttf" },
+  { family: "NotoSans", style: "italic", fileName: "NotoSans-Italic.ttf" },
+  { family: "NotoSans", style: "bolditalic", fileName: "NotoSans-BoldItalic.ttf" },
+  { family: "NotoSansThai", style: "normal", fileName: "NotoSansThai-Regular.ttf" },
+  { family: "NotoSansThai", style: "bold", fileName: "NotoSansThai-Bold.ttf" },
+  { family: "NotoSansThai", style: "italic", fileName: "NotoSansThai-Regular.ttf" },
+  { family: "NotoSansThai", style: "bolditalic", fileName: "NotoSansThai-Bold.ttf" },
   { family: "NotoSansMono", style: "normal", fileName: "NotoSansMono-Regular.ttf" },
   { family: "NotoSansMono", style: "bold", fileName: "NotoSansMono-Bold.ttf" },
 ];
-const pdfFontFamily = "THSarabunPSK";
+const pdfFontFamily = "NotoSansThai";
 const pdfFallbackFontFamily = "NotoSans";
 const pdfMonoFontFamily = "NotoSansMono";
 

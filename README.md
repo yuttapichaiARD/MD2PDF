@@ -14,8 +14,8 @@
 - PDF export เป็น text layer คัดลอกข้อความได้ และเก็บ hyperlink จาก Markdown
 - รองรับสมการ LaTeX ด้วย KaTeX ใน preview และเก็บ source formula ใน export
 - เพิ่ม PDF bookmark/outlines สำหรับ H1, H2, table และ code block
-- ฝังฟอนต์ `NotoSansThai` และ `NotoSansMono` ใน PDF จาก `resource/font/`
-- DOCX ใช้และฝังฟอนต์ `TH SarabunPSK` จาก `resource/font/`
+- ฝังฟอนต์ `NotoSansThai`, `NotoSans`, และ `NotoSansMono` ใน PDF จาก `resource/font/`
+- DOCX ใช้และฝังฟอนต์ `Noto Sans Thai` จาก `resource/font/`
 - แปลงทั้งหมดในเบราว์เซอร์ ไฟล์ Markdown ไม่ถูกอัปโหลดไปเซิร์ฟเวอร์
 
 ## ใช้งาน
