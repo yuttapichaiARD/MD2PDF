@@ -72,14 +72,14 @@ const pdfEmbeddedFonts = [
   { family: "NotoSans", style: "bold", fileName: "NotoSans-Bold.ttf" },
   { family: "NotoSans", style: "italic", fileName: "NotoSans-Regular.ttf" },
   { family: "NotoSans", style: "bolditalic", fileName: "NotoSans-Bold.ttf" },
-  { family: "NotoSansThai", style: "normal", fileName: "NotoSansThai-Regular.ttf" },
-  { family: "NotoSansThai", style: "bold", fileName: "NotoSansThai-Bold.ttf" },
-  { family: "NotoSansThai", style: "italic", fileName: "NotoSansThai-Regular.ttf" },
-  { family: "NotoSansThai", style: "bolditalic", fileName: "NotoSansThai-Bold.ttf" },
+  { family: "THSarabunPSK", style: "normal", fileName: "THSarabun.ttf" },
+  { family: "THSarabunPSK", style: "bold", fileName: "THSarabun Bold.ttf" },
+  { family: "THSarabunPSK", style: "italic", fileName: "THSarabun Italic.ttf" },
+  { family: "THSarabunPSK", style: "bolditalic", fileName: "THSarabun BoldItalic.ttf" },
   { family: "NotoSansMono", style: "normal", fileName: "NotoSansMono-Regular.ttf" },
   { family: "NotoSansMono", style: "bold", fileName: "NotoSansMono-Bold.ttf" },
 ];
-const pdfFontFamily = "NotoSansThai";
+const pdfFontFamily = "THSarabunPSK";
 const pdfFallbackFontFamily = "NotoSans";
 const pdfMonoFontFamily = "NotoSansMono";
 
