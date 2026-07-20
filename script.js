@@ -83,6 +83,26 @@ const pdfFontFamily = "NotoSansThai";
 const pdfFallbackFontFamily = "NotoSans";
 const pdfMonoFontFamily = "NotoSansMono";
 
+// jsPDF ไม่ทำ OpenType shaping (GPOS/GSUB) จึงต้องจัดตำแหน่งสระ/วรรณยุกต์ไทยเอง
+const thaiPattern = /[฀-๿]/;
+const thaiCombiningPattern = /[ัิ-ฺ็-๎]/;
+const thaiLowerMarkPattern = /[ุ-ฺ]/;
+const thaiToneMarkPattern = /[่-์]/;
+const thaiAscenderBasePattern = /[ปฝฟฬ]/; // ป ฝ ฟ ฬ
+const thaiDescenderBasePattern = /[ฎฏญฐ]/; // ฎ ฏ ญ ฐ
+const thaiMarkTuning = {
+  stackedToneRaise: 0.32, // ยกวรรณยุกต์/การันต์ขึ้นเมื่อซ้อนบนสระบน (สัดส่วน em)
+  ascenderMarkShift: 0.1, // เลื่อนเครื่องหมายบนไปทางซ้ายเมื่อพยัญชนะหางสูง
+  descenderLowerDrop: 0.14, // กดสระล่างลงเมื่อพยัญชนะมีหางล่าง
+};
+const thaiWordSegmenter = (() => {
+  try {
+    return new Intl.Segmenter("th", { granularity: "word" });
+  } catch {
+    return null;
+  }
+})();
+
 const state = {
   sourceName: "document.md",
   outputMode: "pdf",
@@ -99,6 +119,7 @@ const elements = {
   orientation: document.getElementById("orientation"),
   pageWidth: document.getElementById("pageWidth"),
   pageHeight: document.getElementById("pageHeight"),
+  pdfMode: document.getElementById("pdfMode"),
   renderScale: document.getElementById("renderScale"),
   marginPreset: document.getElementById("marginPreset"),
   marginTop: document.getElementById("marginTop"),
@@ -541,7 +562,22 @@ async function downloadPdf() {
     });
 
     pdf.setProperties(getPdfMetadata());
-    await renderPreviewPdf(pdf, page, orientation);
+
+    let useVectorText = !elements.pdfMode || elements.pdfMode.value !== "image";
+    if (useVectorText) {
+      try {
+        await registerPdfFonts(pdf);
+      } catch (error) {
+        console.error("โหลดฟอนต์สำหรับ PDF ไม่สำเร็จ ใช้โหมดภาพแทน", error);
+        useVectorText = false;
+      }
+    }
+
+    if (useVectorText) {
+      await renderTextPdf(pdf, page);
+    } else {
+      await renderPreviewPdf(pdf, page, orientation);
+    }
     pdf.save(getPdfName());
     setStatus("ดาวน์โหลดแล้ว");
   } catch (error) {
@@ -606,11 +642,11 @@ async function renderPreviewPdf(pdf, page, orientation) {
   }
 }
 
-function renderTextPdf(pdf, page) {
+async function renderTextPdf(pdf, page) {
   const context = createPdfRenderContext(pdf, page);
-  elements.preview.childNodes.forEach((node) => {
-    renderPdfNode(node, context);
-  });
+  for (const node of [...elements.preview.childNodes]) {
+    await renderPdfNode(node, context);
+  }
   resolvePdfInternalLinks(context);
   addPdfBookmarks(context);
 }
@@ -633,7 +669,7 @@ function createPdfRenderContext(pdf, page) {
   };
 }
 
-function renderPdfNode(node, context) {
+async function renderPdfNode(node, context) {
   if (node.nodeType === Node.TEXT_NODE) {
     const text = node.textContent.trim();
     if (text) {
@@ -648,7 +684,7 @@ function renderPdfNode(node, context) {
 
   const tagName = node.tagName.toLowerCase();
   if (node.hasAttribute("data-tex")) {
-    drawPdfMathBlock(context, node);
+    await drawPdfMathBlock(context, node);
     return;
   }
 
@@ -658,13 +694,18 @@ function renderPdfNode(node, context) {
       anchorId: node.id,
       bookmarkTitle: level <= 2 ? node.textContent.trim() : "",
       bookmarkLevel: level,
+      keepWithNextMm: 16,
     });
     drawPdfRule(context);
     return;
   }
 
   if (tagName === "p") {
-    drawPdfParagraph(context, inlineNodesToPdfRuns(node.childNodes, {}), getPdfTextStyle("body"));
+    if (node.querySelector("img")) {
+      await drawPdfParagraphWithImages(context, node);
+    } else {
+      drawPdfParagraph(context, inlineNodesToPdfRuns(node.childNodes, {}), getPdfTextStyle("body"));
+    }
     return;
   }
 
@@ -694,11 +735,79 @@ function renderPdfNode(node, context) {
   }
 
   if (tagName === "img") {
-    drawPdfParagraph(context, [{ text: node.alt || node.src || "" }], getPdfTextStyle("body"));
+    await drawPdfImage(context, node);
     return;
   }
 
   drawPdfParagraph(context, inlineNodesToPdfRuns(node.childNodes, {}), getPdfTextStyle("body"));
+}
+
+async function drawPdfParagraphWithImages(context, paragraphElement) {
+  const style = getPdfTextStyle("body");
+  let inlineNodes = [];
+
+  const flushInline = () => {
+    const runs = inlineNodesToPdfRuns(inlineNodes, {});
+    if (runs.some((run) => String(run.text || "").trim())) {
+      drawPdfParagraph(context, runs, style);
+    }
+    inlineNodes = [];
+  };
+
+  for (const child of [...paragraphElement.childNodes]) {
+    const isImage = child.nodeType === Node.ELEMENT_NODE && child.tagName.toLowerCase() === "img";
+    if (isImage) {
+      flushInline();
+      await drawPdfImage(context, child);
+    } else {
+      inlineNodes.push(child);
+    }
+  }
+  flushInline();
+}
+
+async function drawPdfImage(context, imgElement) {
+  const fallbackText = imgElement.getAttribute("alt") || imgElement.getAttribute("src") || "";
+  try {
+    const image = await loadImageData(imgElement);
+    const pxToMm = 25.4 / 96;
+    const capacity = context.bottom - context.page.marginTop;
+    let widthMm = Math.min(image.width * pxToMm, context.usableWidth);
+    let heightMm = image.height * pxToMm * (widthMm / (image.width * pxToMm));
+    if (heightMm > capacity) {
+      widthMm *= capacity / heightMm;
+      heightMm = capacity;
+    }
+
+    ensurePdfSpace(context, heightMm);
+    context.pdf.addImage(image.dataUrl, "PNG", context.left, context.cursorY, widthMm, heightMm);
+    context.cursorY += heightMm + 3;
+  } catch {
+    drawPdfParagraph(context, [{ text: fallbackText, italic: true }], getPdfTextStyle("body"));
+  }
+}
+
+function loadImageData(imgElement) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    image.addEventListener("load", () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        const canvasContext = canvas.getContext("2d");
+        canvasContext.fillStyle = "#ffffff";
+        canvasContext.fillRect(0, 0, canvas.width, canvas.height);
+        canvasContext.drawImage(image, 0, 0);
+        resolve({ dataUrl: canvas.toDataURL("image/png"), width: image.naturalWidth, height: image.naturalHeight });
+      } catch (error) {
+        reject(error);
+      }
+    });
+    image.addEventListener("error", reject);
+    image.src = imgElement.currentSrc || imgElement.src;
+  });
 }
 
 function getPdfTextStyle(kind) {
@@ -734,13 +843,32 @@ function drawPdfParagraph(context, runs, style, options = {}) {
   const width = options.width ?? context.usableWidth;
   const normalizedRuns = normalizePdfRuns(runs, style);
   const lines = wrapPdfRuns(pdf, normalizedRuns, width, fontSize);
+  const segments = [];
 
   if (!lines.length) {
     context.cursorY += lineHeightMm;
-    return;
+    return segments;
   }
 
-  ensurePdfSpace(context, lines.length * lineHeightMm);
+  const pageCapacity = context.bottom - context.page.marginTop;
+  const totalHeight = lines.length * lineHeightMm;
+  const keepWithNextMm = options.keepWithNextMm || 0;
+  const remaining = context.bottom - context.cursorY;
+  let forcedBreakAfterLine = -1;
+
+  if (totalHeight + keepWithNextMm > remaining) {
+    const linesThatFit = Math.floor(remaining / lineHeightMm);
+    const keepTogether =
+      totalHeight + keepWithNextMm <= pageCapacity &&
+      (linesThatFit < 2 || lines.length - linesThatFit < 2 || lines.length <= 4);
+
+    if (keepTogether || linesThatFit < 1) {
+      startNewPdfPage(context);
+    } else if (lines.length - linesThatFit === 1 && linesThatFit >= 3) {
+      forcedBreakAfterLine = linesThatFit - 2;
+    }
+  }
+
   if (options.anchorId) {
     recordPdfAnchor(context, options.anchorId);
   }
@@ -748,7 +876,27 @@ function drawPdfParagraph(context, runs, style, options = {}) {
     recordPdfBookmark(context, options.bookmarkTitle, options.bookmarkLevel || 1);
   }
 
-  lines.forEach((line) => {
+  let segment = null;
+  const openSegment = () => {
+    segment = {
+      pageNumber: pdf.internal.getCurrentPageInfo().pageNumber,
+      startY: context.cursorY,
+      endY: context.cursorY,
+    };
+    segments.push(segment);
+  };
+  openSegment();
+
+  lines.forEach((line, lineIndex) => {
+    if (
+      context.cursorY + lineHeightMm > context.bottom + 0.1 ||
+      (forcedBreakAfterLine >= 0 && lineIndex === forcedBreakAfterLine + 1)
+    ) {
+      forcedBreakAfterLine = -1;
+      startNewPdfPage(context);
+      openSegment();
+    }
+
     let cursorX = left;
     line.forEach((run) => {
       setPdfRunFont(pdf, run, fontSize);
@@ -769,10 +917,12 @@ function drawPdfParagraph(context, runs, style, options = {}) {
       cursorX += runWidth;
     });
     context.cursorY += lineHeightMm;
+    segment.endY = context.cursorY;
   });
 
   pdf.setTextColor("#191817");
   context.cursorY += options.after ?? lineHeightMm * 0.35;
+  return segments;
 }
 
 function recordPdfAnchor(context, anchorId) {
@@ -872,8 +1022,39 @@ function normalizePdfRuns(runs, style) {
 }
 
 function splitPdfTextRun(run) {
-  const parts = String(run.text || "").match(/(\s+|[^\s]+)/g) || [];
-  return parts.flatMap((text) => splitPdfRunByFont({ ...run, text }));
+  const text = decomposeThaiSaraAm(String(run.text || ""));
+  const parts = splitTextForWrapping(text);
+  return parts.flatMap((part) => splitPdfRunByFont({ ...run, text: part }));
+}
+
+// แยกสระอำเป็นนิคหิต + สระอา และย้ายนิคหิตมาก่อนวรรณยุกต์
+// เพื่อให้วางตำแหน่งได้ถูก (วรรณยุกต์ต้องลอยเหนือนิคหิต)
+function decomposeThaiSaraAm(text) {
+  if (!text.includes("ำ")) {
+    return text;
+  }
+  return text.replace(/([่-์]?)ำ/g, (_, tone) => `ํ${tone}า`);
+}
+
+// ตัดข้อความเป็นชิ้นสำหรับ wrap บรรทัด — ภาษาไทยตัดตามขอบคำด้วย Intl.Segmenter
+function splitTextForWrapping(text) {
+  if (!thaiWordSegmenter || !thaiPattern.test(text)) {
+    return text.match(/(\s+|[^\s]+)/g) || [];
+  }
+
+  const parts = [];
+  for (const { segment } of thaiWordSegmenter.segment(text)) {
+    const isSpace = /^\s+$/.test(segment);
+    const isThai = thaiPattern.test(segment);
+    const previous = parts[parts.length - 1];
+    if (!isSpace && previous && !previous.isSpace && !(isThai && previous.isThai)) {
+      previous.text += segment;
+      previous.isThai = previous.isThai || isThai;
+    } else {
+      parts.push({ text: segment, isSpace, isThai });
+    }
+  }
+  return parts.map((part) => part.text);
 }
 
 function splitPdfRunByFont(run) {
@@ -957,7 +1138,7 @@ function breakLongPdfRun(pdf, run, maxWidth, fontSize) {
   let current = "";
   [...run.text].forEach((char) => {
     const next = current + char;
-    if (current && pdf.getTextWidth(next) > maxWidth) {
+    if (current && !thaiCombiningPattern.test(char) && pdf.getTextWidth(next) > maxWidth) {
       pieces.push({ ...run, text: current });
       current = char;
     } else {
@@ -997,7 +1178,59 @@ function setPdfRunFont(pdf, run, fallbackFontSize) {
 
 function drawPdfRunText(pdf, run, x, baselineY, fallbackFontSize) {
   setPdfRunFont(pdf, run, fallbackFontSize);
-  pdf.text(String(run.text || ""), x, baselineY);
+  const text = String(run.text || "");
+  if (!thaiCombiningPattern.test(text)) {
+    pdf.text(text, x, baselineY);
+    return;
+  }
+  drawThaiShapedText(pdf, text, x, baselineY, run.fontSize || fallbackFontSize);
+}
+
+// วาดข้อความไทยโดยวางเครื่องหมาย combining ทีละตัวพร้อมชดเชยตำแหน่งตามบริบท
+// แทน GPOS ที่ jsPDF ไม่รองรับ: ยกวรรณยุกต์เมื่อซ้อนสระบน, เลื่อนซ้ายบนพยัญชนะ
+// หางสูง (ป ฝ ฟ ฬ), กดสระล่างใต้พยัญชนะหางล่าง (ฎ ฏ ญ ฐ)
+function drawThaiShapedText(pdf, text, x, baselineY, fontSize) {
+  const emMm = pointToMm(fontSize);
+  let penX = x;
+  let buffer = "";
+  let baseChar = "";
+  let upperMarkCount = 0;
+
+  const flushBuffer = () => {
+    if (!buffer) {
+      return;
+    }
+    pdf.text(buffer, penX, baselineY);
+    penX += pdf.getTextWidth(buffer);
+    buffer = "";
+  };
+
+  for (const char of text) {
+    if (thaiCombiningPattern.test(char)) {
+      flushBuffer();
+      let dx = 0;
+      let dy = 0;
+      if (thaiLowerMarkPattern.test(char)) {
+        if (thaiDescenderBasePattern.test(baseChar)) {
+          dy += thaiMarkTuning.descenderLowerDrop * emMm;
+        }
+      } else {
+        if (thaiAscenderBasePattern.test(baseChar)) {
+          dx -= thaiMarkTuning.ascenderMarkShift * emMm;
+        }
+        if (upperMarkCount > 0 && thaiToneMarkPattern.test(char)) {
+          dy -= thaiMarkTuning.stackedToneRaise * emMm;
+        }
+        upperMarkCount += 1;
+      }
+      pdf.text(char, penX + dx, baselineY + dy);
+    } else {
+      buffer += char;
+      baseChar = char;
+      upperMarkCount = 0;
+    }
+  }
+  flushBuffer();
 }
 
 function drawPdfList(context, listElement, isOrdered, level = 0) {
@@ -1025,19 +1258,50 @@ function drawPdfList(context, listElement, isOrdered, level = 0) {
 }
 
 function drawPdfQuote(context, blockquote) {
-  const startY = context.cursorY;
-  drawPdfParagraph(context, inlineNodesToPdfRuns(blockquote.childNodes, { italic: true }), getPdfTextStyle("quote"), {
+  const segments = drawPdfParagraph(context, inlineNodesToPdfRuns(blockquote.childNodes, { italic: true }), getPdfTextStyle("quote"), {
     left: context.left + 5,
     width: context.usableWidth - 5,
   });
-  context.pdf.setDrawColor("#217a68");
-  context.pdf.setLineWidth(0.8);
-  context.pdf.line(context.left, startY, context.left, context.cursorY - 1);
+  const { pdf } = context;
+  const currentPage = pdf.internal.getCurrentPageInfo().pageNumber;
+  pdf.setDrawColor("#217a68");
+  pdf.setLineWidth(0.8);
+  segments.forEach((segment) => {
+    if (segment.endY <= segment.startY) {
+      return;
+    }
+    pdf.setPage(segment.pageNumber);
+    pdf.line(context.left, segment.startY, context.left, Math.max(segment.startY, segment.endY - 1));
+  });
+  pdf.setPage(currentPage);
 }
 
-function drawPdfMathBlock(context, element) {
+async function drawPdfMathBlock(context, element) {
   const tex = element.getAttribute("data-tex") || element.textContent.trim();
   const displayMode = element.getAttribute("data-display") === "true";
+
+  if (displayMode && window.html2canvas && element.isConnected) {
+    try {
+      const scale = Math.max(2, readNumber(elements.renderScale, 2, 1, 3));
+      const canvas = await window.html2canvas(element, {
+        backgroundColor: "#ffffff",
+        scale,
+      });
+      const rect = element.getBoundingClientRect();
+      const pxToMm = 25.4 / 96;
+      let widthMm = Math.min(rect.width * pxToMm, context.usableWidth);
+      const heightMm = rect.height * pxToMm * (widthMm / (rect.width * pxToMm));
+
+      ensurePdfSpace(context, heightMm + 2);
+      const offsetX = context.left + Math.max(0, (context.usableWidth - widthMm) / 2);
+      context.pdf.addImage(canvas.toDataURL("image/png"), "PNG", offsetX, context.cursorY, widthMm, heightMm);
+      context.cursorY += heightMm + 4;
+      return;
+    } catch (error) {
+      console.error("แปลงสูตรเป็นภาพไม่สำเร็จ ใช้ข้อความแทน", error);
+    }
+  }
+
   const text = displayMode ? `$$${tex}$$` : `$${tex}$`;
   const style = getPdfTextStyle(displayMode ? "latexBlock" : "latexInline");
   drawPdfParagraph(context, [{ text, fontFamily: pdfMonoFontFamily }], style, {
@@ -1050,30 +1314,55 @@ function drawPdfMathBlock(context, element) {
 function drawPdfCodeBlock(context, preElement) {
   const style = getPdfTextStyle("codeBlock");
   const text = preElement.textContent.replace(/\n$/, "");
-  const lines = text.split("\n");
+  const allLines = text.split("\n");
   const lineHeightMm = pointToMm(style.fontSize) * 1.45;
-  const blockHeight = lines.length * lineHeightMm + 6;
-  ensurePdfSpace(context, blockHeight);
-
+  const paddingMm = 3;
   const { pdf } = context;
+
+  const linesThatFit = () => Math.floor((context.bottom - context.cursorY - paddingMm * 2) / lineHeightMm);
+  if (linesThatFit() < Math.min(allLines.length, 3)) {
+    startNewPdfPage(context);
+  }
+
   context.codeCount += 1;
   const language = getCodeLanguage(preElement);
   recordPdfBookmark(context, `Code ${context.codeCount}${language ? ` (${language})` : ""}`, 3);
-  pdf.setFillColor("#202321");
-  pdf.roundedRect(context.left, context.cursorY, context.usableWidth, blockHeight, 1.8, 1.8, "F");
-  pdf.setTextColor("#f7f7f2");
-  lines.forEach((line, index) => {
-    let cursorX = context.left + 3;
-    const baselineY = context.cursorY + 4 + lineHeightMm * (index + 0.72);
-    const runs = normalizePdfRuns([{ text: line || " ", fontFamily: pdfMonoFontFamily }], style);
-    runs.forEach((run) => {
-      setPdfRunFont(pdf, run, style.fontSize);
-      drawPdfRunText(pdf, run, cursorX, baselineY, style.fontSize);
-      cursorX += pdf.getTextWidth(run.text);
+
+  let index = 0;
+  while (index < allLines.length) {
+    const remainingLines = allLines.length - index;
+    let count = Math.min(linesThatFit(), remainingLines);
+    if (count < 1) {
+      startNewPdfPage(context);
+      continue;
+    }
+    if (remainingLines - count === 1 && count > 2) {
+      count -= 1;
+    }
+
+    const chunk = allLines.slice(index, index + count);
+    const blockHeight = chunk.length * lineHeightMm + paddingMm * 2;
+    pdf.setFillColor("#202321");
+    pdf.roundedRect(context.left, context.cursorY, context.usableWidth, blockHeight, 1.8, 1.8, "F");
+    pdf.setTextColor("#f7f7f2");
+    chunk.forEach((line, lineIndex) => {
+      let cursorX = context.left + 3;
+      const baselineY = context.cursorY + paddingMm + lineHeightMm * (lineIndex + 0.72);
+      const runs = normalizePdfRuns([{ text: line || " ", fontFamily: pdfMonoFontFamily }], style);
+      runs.forEach((run) => {
+        setPdfRunFont(pdf, run, style.fontSize);
+        drawPdfRunText(pdf, run, cursorX, baselineY, style.fontSize);
+        cursorX += pdf.getTextWidth(run.text);
+      });
     });
-  });
-  pdf.setTextColor("#191817");
-  context.cursorY += blockHeight + 4;
+    pdf.setTextColor("#191817");
+    context.cursorY += blockHeight;
+    index += count;
+    if (index < allLines.length) {
+      startNewPdfPage(context);
+    }
+  }
+  context.cursorY += 4;
 }
 
 function getCodeLanguage(preElement) {
@@ -1095,13 +1384,12 @@ function drawPdfTable(context, tableElement) {
 
   const { pdf } = context;
   context.tableCount += 1;
-  recordPdfBookmark(context, `Table ${context.tableCount}`, 3);
   const columnCount = Math.max(...rows.map((row) => row.length));
   const cellPadding = 2.5;
   const columnWidth = context.usableWidth / columnCount;
   const lineHeightMm = pointToMm(style.fontSize) * 1.45;
 
-  rows.forEach((row) => {
+  const preparedRows = rows.map((row) => {
     const wrappedCells = Array.from({ length: columnCount }, (_, columnIndex) => {
       const cell = row[columnIndex] || { text: "", header: false };
       const runs = normalizePdfRuns([{ text: cell.text || " ", bold: cell.header }], style);
@@ -1110,17 +1398,23 @@ function drawPdfTable(context, tableElement) {
         lines: wrapPdfRuns(pdf, runs, columnWidth - cellPadding * 2, style.fontSize),
       };
     });
-    const rowHeight = Math.max(...wrappedCells.map((cell) => cell.lines.length)) * lineHeightMm + cellPadding * 2;
-    ensurePdfSpace(context, rowHeight);
+    return {
+      cells: wrappedCells,
+      height: Math.max(...wrappedCells.map((cell) => cell.lines.length)) * lineHeightMm + cellPadding * 2,
+    };
+  });
 
-    wrappedCells.forEach((cell, columnIndex) => {
+  const headerRow = rows[0].length && rows[0].every((cell) => cell.header) ? preparedRows[0] : null;
+
+  const drawRow = (preparedRow) => {
+    preparedRow.cells.forEach((cell, columnIndex) => {
       const x = context.left + columnIndex * columnWidth;
       if (cell.header) {
         pdf.setFillColor("#eef2f1");
-        pdf.rect(x, context.cursorY, columnWidth, rowHeight, "F");
+        pdf.rect(x, context.cursorY, columnWidth, preparedRow.height, "F");
       }
       pdf.setDrawColor("#d8dedb");
-      pdf.rect(x, context.cursorY, columnWidth, rowHeight);
+      pdf.rect(x, context.cursorY, columnWidth, preparedRow.height);
       pdf.setTextColor("#191817");
       cell.lines.forEach((line, lineIndex) => {
         let cursorX = x + cellPadding;
@@ -1132,7 +1426,25 @@ function drawPdfTable(context, tableElement) {
         });
       });
     });
-    context.cursorY += rowHeight;
+    context.cursorY += preparedRow.height;
+  };
+
+  // ถ้าเนื้อที่เหลือไม่พอสำหรับหัวตาราง + แถวแรก ให้ขึ้นหน้าใหม่ก่อน
+  const firstBodyRow = preparedRows[headerRow ? 1 : 0];
+  const initialNeed = (headerRow ? headerRow.height : 0) + (firstBodyRow ? firstBodyRow.height : 0);
+  if (context.cursorY + initialNeed > context.bottom + 0.1 && initialNeed <= context.bottom - context.page.marginTop) {
+    startNewPdfPage(context);
+  }
+  recordPdfBookmark(context, `Table ${context.tableCount}`, 3);
+
+  preparedRows.forEach((preparedRow, rowIndex) => {
+    if (context.cursorY + preparedRow.height > context.bottom + 0.1) {
+      startNewPdfPage(context);
+      if (headerRow && rowIndex > 0) {
+        drawRow(headerRow);
+      }
+    }
+    drawRow(preparedRow);
   });
   context.cursorY += 4;
 }
@@ -1145,12 +1457,16 @@ function drawPdfRule(context) {
   context.cursorY += 7;
 }
 
+function startNewPdfPage(context) {
+  context.pdf.addPage([context.page.width, context.page.height], context.page.width >= context.page.height ? "landscape" : "portrait");
+  context.cursorY = context.page.marginTop;
+}
+
 function ensurePdfSpace(context, neededHeight) {
   if (context.cursorY + neededHeight <= context.bottom) {
     return;
   }
-  context.pdf.addPage([context.page.width, context.page.height], context.page.width >= context.page.height ? "landscape" : "portrait");
-  context.cursorY = context.page.marginTop;
+  startNewPdfPage(context);
 }
 
 function inlineNodesToPdfRuns(nodes, inherited = {}) {
@@ -1495,13 +1811,21 @@ async function embedFontsInDocx(docxBlob) {
   });
 }
 
+const fontBytesCache = new Map();
+
 async function fetchFontBytes(url) {
+  if (fontBytesCache.has(url)) {
+    return fontBytesCache.get(url);
+  }
+
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`Cannot load font: ${url}`);
   }
 
-  return new Uint8Array(await response.arrayBuffer());
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  fontBytesCache.set(url, bytes);
+  return bytes;
 }
 
 function createFontKey(index) {
