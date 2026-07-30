@@ -626,6 +626,20 @@ body.docx-mode .preview-page {
   background: var(--surface-2);
 }
 
+/* ตารางที่กำหนดความกว้างต่อคอลัมน์ (ตามจำนวนขีดในแถวคั่น) ต้องใช้ table-layout
+   คงที่ให้ <colgroup> มีผลจริง และให้เนื้อหายาวตัดบรรทัดในคอลัมน์แคบได้ */
+.markdown-body table.has-custom-cols {
+  display: table;
+  table-layout: fixed;
+  width: 100%;
+}
+
+.markdown-body table.has-custom-cols th,
+.markdown-body table.has-custom-cols td {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .markdown-body img {
   height: auto;
   max-width: 100%;

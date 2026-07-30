@@ -342,6 +342,7 @@ function renderMarkdown() {
 
   elements.preview.innerHTML = cleanHtml;
   ensurePreviewHeadingIds();
+  applyTableColumnWidths(markdown);
   elements.preview.querySelectorAll("a[href]").forEach((anchor) => {
     if (!isInternalHashLink(anchor.getAttribute("href") || "")) {
       anchor.setAttribute("target", "_blank");
@@ -412,6 +413,92 @@ function escapeHtml(value) {
 
 function escapeHtmlAttribute(value) {
   return escapeHtml(value).replace(/"/g, "&quot;");
+}
+
+// กำหนดความกว้างคอลัมน์ต่อคอลัมน์จาก "จำนวนขีด" ในแถวคั่นหัวตาราง Markdown
+// เช่น | --- | -------- | --- | ทำให้คอลัมน์กลางกว้างกว่า แล้วฝังเป็น <colgroup>
+// ให้ทั้ง preview และ PDF ใช้สัดส่วนเดียวกัน (colgroup คือ single source of truth)
+function applyTableColumnWidths(markdownSource) {
+  const fractionsList = collectTableColumnFractions(markdownSource);
+  const tables = [...elements.preview.querySelectorAll("table")];
+
+  tables.forEach((table, index) => {
+    const existing = table.querySelector("colgroup[data-md2pdf]");
+    if (existing) {
+      existing.remove();
+    }
+    table.classList.remove("has-custom-cols");
+
+    const fractions = fractionsList[index];
+    const columnCount = getTableColumnCount(table);
+    if (!fractions || fractions.length !== columnCount) {
+      return;
+    }
+
+    const colgroup = document.createElement("colgroup");
+    colgroup.setAttribute("data-md2pdf", "widths");
+    fractions.forEach((fraction) => {
+      const col = document.createElement("col");
+      col.style.width = `${(fraction * 100).toFixed(3)}%`;
+      colgroup.appendChild(col);
+    });
+    table.insertBefore(colgroup, table.firstChild);
+    table.classList.add("has-custom-cols");
+  });
+}
+
+function getTableColumnCount(table) {
+  const firstRow = table.querySelector("tr");
+  return firstRow ? firstRow.children.length : 0;
+}
+
+// อ่าน token ตารางจาก Markdown ตามลำดับ แล้วดึงสัดส่วนความกว้างจากแถวคั่น
+function collectTableColumnFractions(markdownSource) {
+  if (!window.marked || typeof window.marked.lexer !== "function") {
+    return [];
+  }
+
+  let tokens;
+  try {
+    tokens = window.marked.lexer(markdownSource);
+  } catch {
+    return [];
+  }
+
+  const tables = [];
+  const walk = (list) => {
+    (list || []).forEach((token) => {
+      if (token.type === "table") {
+        tables.push(token);
+      }
+      if (token.tokens) {
+        walk(token.tokens);
+      }
+      if (token.items) {
+        token.items.forEach((item) => walk(item.tokens));
+      }
+    });
+  };
+  walk(tokens);
+
+  return tables.map((token) => parseDelimiterFractions(token.raw));
+}
+
+function parseDelimiterFractions(raw) {
+  const lines = String(raw || "").split("\n").filter((line) => line.trim());
+  const delimiter = lines[1] || "";
+  const counts = delimiter
+    .replace(/^\s*\|/, "")
+    .replace(/\|\s*$/, "")
+    .split("|")
+    .map((cell) => (cell.match(/-/g) || []).length);
+
+  if (counts.length < 2 || counts.some((count) => count === 0)) {
+    return null;
+  }
+
+  const total = counts.reduce((sum, count) => sum + count, 0);
+  return counts.map((count) => count / total);
 }
 
 function ensurePreviewHeadingIds() {
@@ -1518,7 +1605,11 @@ function drawPdfTable(context, tableElement) {
   context.tableCount += 1;
   const columnCount = Math.max(...rows.map((row) => row.length));
   const cellPadding = 2.5;
-  const columnWidth = context.usableWidth / columnCount;
+  const columnWidths = resolveTableColumnWidths(tableElement, columnCount, context.usableWidth);
+  const columnOffsets = columnWidths.reduce((offsets, width, index) => {
+    offsets.push((offsets[index - 1] || 0) + (index ? columnWidths[index - 1] : 0));
+    return offsets;
+  }, []);
   const lineHeightMm = pointToMm(style.fontSize) * 1.45;
 
   const preparedRows = rows.map((row) => {
@@ -1527,7 +1618,7 @@ function drawPdfTable(context, tableElement) {
       const runs = normalizePdfRuns([{ text: cell.text || " ", bold: cell.header }], style);
       return {
         ...cell,
-        lines: wrapPdfRuns(pdf, runs, columnWidth - cellPadding * 2, style.fontSize),
+        lines: wrapPdfRuns(pdf, runs, columnWidths[columnIndex] - cellPadding * 2, style.fontSize),
       };
     });
     return {
@@ -1540,7 +1631,8 @@ function drawPdfTable(context, tableElement) {
 
   const drawRow = (preparedRow) => {
     preparedRow.cells.forEach((cell, columnIndex) => {
-      const x = context.left + columnIndex * columnWidth;
+      const columnWidth = columnWidths[columnIndex];
+      const x = context.left + columnOffsets[columnIndex];
       if (cell.header) {
         pdf.setFillColor("#eef2f1");
         pdf.rect(x, context.cursorY, columnWidth, preparedRow.height, "F");
@@ -1579,6 +1671,41 @@ function drawPdfTable(context, tableElement) {
     drawRow(preparedRow);
   });
   context.cursorY += 4;
+}
+
+// สัดส่วนความกว้างมาจาก <colgroup> ที่ applyTableColumnWidths ฝังไว้ (ตรงกับ preview)
+// ไม่มี colgroup = กว้างเท่ากันเหมือนเดิม พร้อมกันไม่ให้คอลัมน์ไหนแคบจนบีบข้อความ
+function resolveTableColumnWidths(tableElement, columnCount, usableWidth) {
+  const cols = [...tableElement.querySelectorAll("colgroup[data-md2pdf] > col")];
+  let fractions = null;
+  if (cols.length === columnCount) {
+    const raw = cols.map((col) => Number.parseFloat(col.style.width) || 0);
+    const total = raw.reduce((sum, value) => sum + value, 0);
+    if (total > 0 && raw.every((value) => value > 0)) {
+      fractions = raw.map((value) => value / total);
+    }
+  }
+  if (!fractions) {
+    return Array.from({ length: columnCount }, () => usableWidth / columnCount);
+  }
+
+  const widths = fractions.map((fraction) => fraction * usableWidth);
+  const minWidth = Math.min(12, usableWidth / columnCount);
+  for (let iteration = 0; iteration < 4; iteration += 1) {
+    const deficit = widths.reduce((sum, width) => sum + Math.max(0, minWidth - width), 0);
+    if (deficit <= 0.01) {
+      break;
+    }
+    const donors = widths.map((width) => Math.max(0, width - minWidth));
+    const pool = donors.reduce((sum, value) => sum + value, 0);
+    if (pool <= 0.01) {
+      return Array.from({ length: columnCount }, () => usableWidth / columnCount);
+    }
+    for (let index = 0; index < widths.length; index += 1) {
+      widths[index] = widths[index] < minWidth ? minWidth : widths[index] - (donors[index] / pool) * deficit;
+    }
+  }
+  return widths;
 }
 
 function drawPdfRule(context) {
