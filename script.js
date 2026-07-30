@@ -96,6 +96,9 @@ const thaiMarkTuning = {
   ascenderMarkShift: 0.1, // เลื่อนเครื่องหมายบนไปทางซ้ายเมื่อพยัญชนะหางสูง
   descenderLowerDrop: 0.14, // กดสระล่างลงเมื่อพยัญชนะมีหางล่าง
 };
+// สมการ inline $...$ วางกึ่งกลางภาพให้ตรงแกนคณิตศาสตร์ (~0.3em เหนือ baseline)
+const inlineMathAxisRatio = 0.3;
+let activeInlineMathImages = null;
 const thaiWordSegmenter = (() => {
   try {
     return new Intl.Segmenter("th", { granularity: "word" });
@@ -766,11 +769,40 @@ async function renderPreviewPdf(pdf, page, orientation) {
 
 async function renderTextPdf(pdf, page) {
   const context = createPdfRenderContext(pdf, page);
-  for (const node of [...elements.preview.childNodes]) {
-    await renderPdfNode(node, context);
+  await prerenderInlineMath(context);
+  try {
+    for (const node of [...elements.preview.childNodes]) {
+      await renderPdfNode(node, context);
+    }
+  } finally {
+    activeInlineMathImages = null;
   }
   resolvePdfInternalLinks(context);
   addPdfBookmarks(context);
+}
+
+// เรนเดอร์สมการ inline $...$ ทุกตัวเป็นภาพล่วงหน้า (async) เก็บลง map keyed ด้วย
+// element เพื่อให้ inlineNodeToPdfRuns (ซึ่ง sync) หยิบไปวางในบรรทัดได้
+async function prerenderInlineMath(context) {
+  const images = new Map();
+  activeInlineMathImages = images;
+  if (!window.katex) {
+    return;
+  }
+  const scale = Math.max(2, readNumber(elements.renderScale, 2, 1, 3));
+  const nodes = [...elements.preview.querySelectorAll('[data-tex][data-display="false"]')];
+  for (const element of nodes) {
+    if (!element.querySelector(".katex")) {
+      continue;
+    }
+    try {
+      const shot = await renderMathElementToCanvas(element, scale);
+      const fontPx = Number.parseFloat(window.getComputedStyle(element).fontSize) || 16;
+      images.set(element, { ...shot, fontPx });
+    } catch (error) {
+      console.error("เรนเดอร์สมการ inline ไม่สำเร็จ ใช้ข้อความแทน", error);
+    }
+  }
 }
 
 function createPdfRenderContext(pdf, page) {
@@ -972,14 +1004,37 @@ function drawPdfParagraph(context, runs, style, options = {}) {
     return segments;
   }
 
+  // ความสูงต่อบรรทัด: ปกติ = lineHeightMm แต่ถ้ามีภาพสมการ inline สูงกว่า
+  // ให้ขยายเฉพาะบรรทัดนั้นไม่ให้สูตรทับข้อความบรรทัดข้างเคียง
+  const emMm = pointToMm(fontSize);
+  const lineMetrics = lines.map((line) => {
+    let maxMathHeight = 0;
+    line.forEach((run) => {
+      if (run.mathImage) {
+        maxMathHeight = Math.max(maxMathHeight, mathImageDims(run).heightMm);
+      }
+    });
+    const above = Math.max(lineHeightMm * 0.72, maxMathHeight / 2 + inlineMathAxisRatio * emMm);
+    const below = Math.max(lineHeightMm * 0.28, maxMathHeight / 2 - inlineMathAxisRatio * emMm);
+    return { above, height: above + below };
+  });
+
   const pageCapacity = context.bottom - context.page.marginTop;
-  const totalHeight = lines.length * lineHeightMm;
+  const totalHeight = lineMetrics.reduce((sum, metric) => sum + metric.height, 0);
   const keepWithNextMm = options.keepWithNextMm || 0;
   const remaining = context.bottom - context.cursorY;
   let forcedBreakAfterLine = -1;
 
   if (totalHeight + keepWithNextMm > remaining) {
-    const linesThatFit = Math.floor(remaining / lineHeightMm);
+    let fitHeight = 0;
+    let linesThatFit = 0;
+    for (const metric of lineMetrics) {
+      if (fitHeight + metric.height > remaining) {
+        break;
+      }
+      fitHeight += metric.height;
+      linesThatFit += 1;
+    }
     const keepTogether =
       totalHeight + keepWithNextMm <= pageCapacity &&
       (linesThatFit < 2 || lines.length - linesThatFit < 2 || lines.length <= 4);
@@ -1010,8 +1065,9 @@ function drawPdfParagraph(context, runs, style, options = {}) {
   openSegment();
 
   lines.forEach((line, lineIndex) => {
+    const metric = lineMetrics[lineIndex];
     if (
-      context.cursorY + lineHeightMm > context.bottom + 0.1 ||
+      context.cursorY + metric.height > context.bottom + 0.1 ||
       (forcedBreakAfterLine >= 0 && lineIndex === forcedBreakAfterLine + 1)
     ) {
       forcedBreakAfterLine = -1;
@@ -1019,26 +1075,34 @@ function drawPdfParagraph(context, runs, style, options = {}) {
       openSegment();
     }
 
+    const baselineY = context.cursorY + metric.above;
     let cursorX = left;
     line.forEach((run) => {
+      if (run.mathImage) {
+        const { widthMm, heightMm } = mathImageDims(run);
+        const axisY = baselineY - inlineMathAxisRatio * emMm;
+        pdf.addImage(run.mathImage.dataUrl, "PNG", cursorX, axisY - heightMm / 2, widthMm, heightMm);
+        cursorX += widthMm;
+        return;
+      }
+
       setPdfRunFont(pdf, run, fontSize);
-      const baselineY = context.cursorY + lineHeightMm * 0.72;
       const runWidth = pdf.getTextWidth(run.text);
       if (run.href) {
         pdf.setTextColor("#145c4d");
         drawPdfRunText(pdf, run, cursorX, baselineY, fontSize);
-        pdf.link(cursorX, context.cursorY, runWidth, lineHeightMm, { url: run.href });
+        pdf.link(cursorX, baselineY - metric.above, runWidth, metric.height, { url: run.href });
       } else if (run.internalHref) {
         pdf.setTextColor("#145c4d");
         drawPdfRunText(pdf, run, cursorX, baselineY, fontSize);
-        queuePdfInternalLink(context, run.internalHref, cursorX, context.cursorY, runWidth, lineHeightMm);
+        queuePdfInternalLink(context, run.internalHref, cursorX, baselineY - metric.above, runWidth, metric.height);
       } else {
         pdf.setTextColor(run.color || "#191817");
         drawPdfRunText(pdf, run, cursorX, baselineY, fontSize);
       }
       cursorX += runWidth;
     });
-    context.cursorY += lineHeightMm;
+    context.cursorY += metric.height;
     segment.endY = context.cursorY;
   });
 
@@ -1135,12 +1199,19 @@ function addPdfBookmarks(context) {
 
 function normalizePdfRuns(runs, style) {
   return runs
-    .flatMap((run) => splitPdfTextRun(run))
+    .flatMap((run) => (run.mathImage ? [run] : splitPdfTextRun(run)))
     .map((run) => ({
       ...run,
       fontSize: run.fontSize || style.fontSize,
     }))
-    .filter((run) => run.text);
+    .filter((run) => run.mathImage || run.text);
+}
+
+// ขนาดของภาพสมการ inline เป็น mm — สูงตามฟอนต์ที่แวดล้อม กว้างตามอัตราส่วนภาพ
+function mathImageDims(run) {
+  const heightMm = pointToMm(run.fontSize) * (run.mathImage.heightPx / run.mathImage.fontPx);
+  const widthMm = heightMm * (run.mathImage.widthPx / run.mathImage.heightPx);
+  return { widthMm, heightMm };
 }
 
 function splitPdfTextRun(run) {
@@ -1226,9 +1297,16 @@ function wrapPdfRuns(pdf, runs, maxWidth, fontSize) {
   runs.forEach((run) => {
     const pieces = breakLongPdfRun(pdf, run, maxWidth, fontSize);
     pieces.forEach((piece) => {
-      setPdfRunFont(pdf, piece, fontSize);
-      const width = pdf.getTextWidth(piece.text);
-      const isWhitespace = /^\s+$/.test(piece.text);
+      let width;
+      let isWhitespace;
+      if (piece.mathImage) {
+        width = mathImageDims(piece).widthMm;
+        isWhitespace = false;
+      } else {
+        setPdfRunFont(pdf, piece, fontSize);
+        width = pdf.getTextWidth(piece.text);
+        isWhitespace = /^\s+$/.test(piece.text);
+      }
 
       if (!isWhitespace && line.length && lineWidth + width > maxWidth) {
         lines.push(trimPdfLine(line));
@@ -1251,6 +1329,9 @@ function wrapPdfRuns(pdf, runs, maxWidth, fontSize) {
 }
 
 function breakLongPdfRun(pdf, run, maxWidth, fontSize) {
+  if (run.mathImage) {
+    return [run];
+  }
   setPdfRunFont(pdf, run, fontSize);
   if (/^\s+$/.test(run.text) || pdf.getTextWidth(run.text) <= maxWidth) {
     return [run];
@@ -1746,15 +1827,15 @@ function inlineNodeToPdfRuns(node, inherited) {
 
   const tagName = node.tagName.toLowerCase();
   if (node.hasAttribute("data-tex")) {
+    const fontSize = inherited.fontSize || getPdfTextStyle("latexInline").fontSize;
+    const shot = node.getAttribute("data-display") !== "true" && activeInlineMathImages
+      ? activeInlineMathImages.get(node)
+      : null;
+    if (shot) {
+      return [{ ...inherited, mathImage: shot, fontSize }];
+    }
     const tex = node.getAttribute("data-tex") || node.textContent.trim();
-    return [
-      {
-        ...inherited,
-        text: `$${tex}$`,
-        fontFamily: pdfMonoFontFamily,
-        fontSize: getPdfTextStyle("latexInline").fontSize,
-      },
-    ];
+    return [{ ...inherited, text: `$${tex}$`, fontFamily: pdfMonoFontFamily, fontSize }];
   }
 
   if (tagName === "br") {
